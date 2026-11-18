@@ -43,9 +43,14 @@ internal sealed class DockWindow : Window
     private RoutineWindow? _routines;
     private DateTimeOffset? _leftAt;
     private DateOnly _shownDay;
-    private bool _pinned, _stopped, _resizing, _resizeCancelled, _automaticCollapse;
+    private bool _pinned, _stopped, _automaticCollapse;
     private DateTimeOffset _lastTyping = DateTimeOffset.MinValue;
-    private double _resizeStartHeight, _resizeTop, _resizeLeft, _resizeHeight;
+    private Thumb? _resizeGrip;
+    private bool _resizing => _resizeGrip != null;
+    private Rect _resizeStartBounds, _resizeBounds;
+    private int _resizeStartX, _resizeStartY;
+    private double _resizeScale;
+    private System.Windows.Forms.Screen? _resizeScreen;
     private UIElement? _dragHandle;
     private int _dragStartX, _dragStartY;
     private double _dragStartLeft, _dragStartTop, _dragScale, _dockPosition, _floatingX, _floatingY;
@@ -124,18 +129,9 @@ internal sealed class DockWindow : Window
         });
         _body = Ui.Scroll(body); _body.Margin = new Thickness(0, 0, 0, 6); Grid.SetRow(_body, 1); root.Children.Add(_body);
         _rowMotion = new TaskRowMotion(_body);
-        var resize = new Thumb { Height = 8, VerticalAlignment = VerticalAlignment.Bottom, Cursor = Cursors.SizeNS, Focusable = false, ToolTip = "上下拖动调整窗口高度" };
-        System.Windows.Automation.AutomationProperties.SetName(resize, "调整窗口高度");
-        var resizeTemplate = new ControlTemplate(typeof(Thumb));
-        var gripArea = new FrameworkElementFactory(typeof(Border)); gripArea.SetValue(Border.BackgroundProperty, Brushes.Transparent);
-        var grip = new FrameworkElementFactory(typeof(Border)); grip.SetValue(FrameworkElement.WidthProperty, 28d); grip.SetValue(FrameworkElement.HeightProperty, 2d);
-        grip.SetValue(FrameworkElement.HorizontalAlignmentProperty, HorizontalAlignment.Center); grip.SetValue(FrameworkElement.VerticalAlignmentProperty, VerticalAlignment.Bottom); grip.SetValue(FrameworkElement.MarginProperty, new Thickness(0, 0, 0, 2));
-        grip.SetValue(Border.CornerRadiusProperty, new CornerRadius(1)); grip.SetResourceReference(Border.BackgroundProperty, "ControlLine"); grip.SetValue(UIElement.OpacityProperty, .55);
-        gripArea.AppendChild(grip); resizeTemplate.VisualTree = gripArea; resize.Template = resizeTemplate;
-        resize.DragStarted += (_, _) => BeginResize(resize);
-        resize.DragDelta += (_, e) => ResizeBy(e.VerticalChange);
-        resize.DragCompleted += (_, e) => EndResize(e.Canceled);
-        Grid.SetRowSpan(resize, 2); root.Children.Add(resize);
+        root.Children.Add(CreateResizeGrip(horizontal: false, vertical: true));
+        root.Children.Add(CreateResizeGrip(horizontal: true, vertical: false));
+        root.Children.Add(CreateResizeGrip(horizontal: true, vertical: true));
         _surface = Ui.Card(root, new Thickness(0)); _surface.CornerRadius = new CornerRadius(19); _surface.SetResourceReference(Border.BackgroundProperty, "Paper"); Content = new AdornerDecorator { Child = _surface };
         _animation = new DockAnimation(this, _surface);
 
@@ -170,13 +166,13 @@ internal sealed class DockWindow : Window
         DockPanel.SetDock(button, Dock.Right); panel.Children.Add(button); panel.Children.Add(input); return panel;
     }
     public void StartDocked() { Reposition(); if (_docked) _edge.Show(); else Show(); Reposition(); _poll.Start(); }
-    public void Stop() { _stopped = true; CancelTaskReorder(); _fileDrop.Dispose(); _rowMotion.Stop(); _poll.Stop(); _hover.Stop(); _animation.Cancel(false); EndDrag(false); _service.Changed -= Refresh; }
+    public void Stop() { _stopped = true; _resizeGrip?.CancelDrag(); CancelTaskReorder(); _fileDrop.Dispose(); _rowMotion.Stop(); _poll.Stop(); _hover.Stop(); _animation.Cancel(false); EndDrag(false); _service.Changed -= Refresh; }
     public void Reposition()
     {
         if (_animation.IsRunning || _resizing) return;
         var screen = NativeWindow.Screen(_service.State.Preferences.MonitorName);
         double available = NativeWindow.WorkHeight(screen);
-        Width = Math.Min(Math.Clamp(_service.State.Preferences.Width, 280, 400), Math.Max(1, screen.WorkingArea.Width / NativeWindow.Scale(screen) - 24));
+        Width = DockLayout.PanelWidth(screen.WorkingArea.Width / NativeWindow.Scale(screen), _service.State.Preferences.Width);
         Height = DockLayout.PanelHeight(available, _service.State.Preferences.Height);
         if (_dragHandle == null)
         {
@@ -316,7 +312,7 @@ internal sealed class DockWindow : Window
     {
         if (e.Key != Key.Escape) return;
         if (_taskSort != null) { CancelTaskReorder(); e.Handled = true; }
-        else if (_resizing && Mouse.Captured is Thumb thumb) { _resizeCancelled = true; thumb.CancelDrag(); e.Handled = true; }
+        else if (_resizeGrip != null) { _resizeGrip.CancelDrag(); e.Handled = true; }
         else if (_dragHandle != null) { EndDrag(false); e.Handled = true; }
     }
     private void EndDrag(bool save)
@@ -330,34 +326,107 @@ internal sealed class DockWindow : Window
         if (showPanel) { _edge.Hide(); _surface.Opacity = 1; Show(); } else { Hide(); _surface.Opacity = 1; _edge.Show(); }
         Reposition();
     }
+    private Thumb CreateResizeGrip(bool horizontal, bool vertical)
+    {
+        bool corner = horizontal && vertical;
+        string label = corner ? "调整窗口宽度和高度" : horizontal ? "调整窗口宽度" : "调整窗口高度";
+        var thumb = new Thumb
+        {
+            Width = horizontal ? corner ? 21 : 8 : double.NaN,
+            Height = vertical ? corner ? 21 : 8 : double.NaN,
+            HorizontalAlignment = horizontal ? HorizontalAlignment.Left : HorizontalAlignment.Stretch,
+            VerticalAlignment = vertical ? VerticalAlignment.Bottom : VerticalAlignment.Stretch,
+            Margin = corner ? new Thickness(0) : horizontal ? new Thickness(0, 17, 0, 21) : new Thickness(21, 0, 21, 0),
+            Cursor = corner ? Cursors.SizeNESW : horizontal ? Cursors.SizeWE : Cursors.SizeNS,
+            Focusable = true,
+            IsTabStop = false,
+            FocusVisualStyle = null,
+            ToolTip = label
+        };
+        System.Windows.Automation.AutomationProperties.SetName(thumb, label);
+        var gripArea = new FrameworkElementFactory(typeof(Border));
+        gripArea.SetValue(Border.BackgroundProperty, Brushes.Transparent);
+        var mark = new FrameworkElementFactory(corner ? typeof(System.Windows.Shapes.Path) : typeof(Border));
+        mark.SetValue(UIElement.OpacityProperty, .55);
+        if (corner)
+        {
+            mark.SetValue(System.Windows.Shapes.Path.DataProperty, Geometry.Parse("M 0,9 L 9,0 M 5,10 L 10,5"));
+            mark.SetResourceReference(System.Windows.Shapes.Shape.StrokeProperty, "ControlLine");
+            mark.SetValue(System.Windows.Shapes.Shape.StrokeThicknessProperty, 1.3d);
+            mark.SetValue(System.Windows.Shapes.Shape.StrokeStartLineCapProperty, PenLineCap.Round);
+            mark.SetValue(System.Windows.Shapes.Shape.StrokeEndLineCapProperty, PenLineCap.Round);
+            mark.SetValue(FrameworkElement.MarginProperty, new Thickness(7, 0, 0, 5));
+            mark.SetValue(FrameworkElement.HorizontalAlignmentProperty, HorizontalAlignment.Left);
+            mark.SetValue(FrameworkElement.VerticalAlignmentProperty, VerticalAlignment.Bottom);
+        }
+        else
+        {
+            mark.SetValue(FrameworkElement.WidthProperty, horizontal ? 2d : 28d);
+            mark.SetValue(FrameworkElement.HeightProperty, horizontal ? 28d : 2d);
+            mark.SetValue(FrameworkElement.HorizontalAlignmentProperty, horizontal ? HorizontalAlignment.Left : HorizontalAlignment.Center);
+            mark.SetValue(FrameworkElement.VerticalAlignmentProperty, horizontal ? VerticalAlignment.Center : VerticalAlignment.Bottom);
+            mark.SetValue(FrameworkElement.MarginProperty, horizontal ? new Thickness(2, 0, 0, 0) : new Thickness(0, 0, 0, 2));
+            mark.SetValue(Border.CornerRadiusProperty, new CornerRadius(1));
+            mark.SetResourceReference(Border.BackgroundProperty, "ControlLine");
+        }
+        mark.SetValue(UIElement.IsHitTestVisibleProperty, false);
+        gripArea.AppendChild(mark);
+        thumb.Template = new ControlTemplate(typeof(Thumb)) { VisualTree = gripArea };
+        Grid.SetRowSpan(thumb, 2);
+        thumb.DragStarted += (_, _) => BeginResize(thumb);
+        thumb.DragDelta += (_, _) => ResizeFromPointer(thumb, horizontal, vertical);
+        thumb.DragCompleted += (_, e) => EndResize(thumb, e.Canceled, horizontal, vertical);
+        return thumb;
+    }
+
     private void BeginResize(Thumb thumb)
     {
-        if (_dragHandle != null || _animation.IsRunning) { thumb.CancelDrag(); return; }
+        if (_dragHandle != null || _resizing || _reordering || _animation.IsRunning ||
+            !NativeWindow.TryCursor(out _resizeStartX, out _resizeStartY)) { thumb.CancelDrag(); return; }
         var screen = NativeWindow.Screen(_service.State.Preferences.MonitorName);
-        var position = NativeWindow.RelativePosition(this, screen);
-        _resizing = true; _resizeCancelled = false; _resizeStartHeight = _resizeHeight = Height;
-        _resizeTop = position.Top; _resizeLeft = position.Left; _leftAt = null;
+        _resizeScreen = screen;
+        _resizeScale = NativeWindow.Scale(screen);
+        var (left, top) = NativeWindow.RelativePosition(this, screen);
+        _resizeStartBounds = _resizeBounds = new Rect(left, top, Width, Height);
+        _resizeGrip = thumb;
+        _leftAt = null;
+        thumb.Focus();
     }
-    private void ResizeBy(double delta)
+
+    private void ResizeFromPointer(Thumb thumb, bool horizontal, bool vertical)
     {
-        if (!_resizing) return;
-        var screen = NativeWindow.Screen(_service.State.Preferences.MonitorName);
-        double maximum = Math.Max(1, NativeWindow.WorkHeight(screen) - _resizeTop - 12);
-        _resizeHeight = Math.Clamp(_resizeHeight + delta, Math.Min(280, maximum), maximum);
-        NativeWindow.PlaceBounds(this, screen, new Rect(_resizeLeft, _resizeTop, Width, _resizeHeight));
+        if (_resizeGrip != thumb || _resizeScreen is not { } screen || !NativeWindow.TryCursor(out int x, out int y)) return;
+        double? dx = horizontal ? (x - _resizeStartX) / _resizeScale : null;
+        double? dy = vertical ? (y - _resizeStartY) / _resizeScale : null;
+        var start = _resizeStartBounds;
+        var (left, top, width, height) = DockLayout.ResizePanel(start.Left, start.Top, start.Width, start.Height,
+            screen.WorkingArea.Width / _resizeScale, screen.WorkingArea.Height / _resizeScale, dx, dy);
+        var updated = new Rect(left, top, width, height);
+        if (updated == _resizeBounds) return;
+        _resizeBounds = updated;
+        NativeWindow.PlaceBounds(this, screen, updated);
         UpdateListHeights();
     }
-    private void EndResize(bool cancelled)
+
+    private void EndResize(Thumb thumb, bool cancelled, bool horizontal, bool vertical)
     {
-        if (!_resizing) return;
-        _resizing = false; _leftAt = null;
-        if (!cancelled && !_resizeCancelled && Math.Abs(_resizeHeight - _resizeStartHeight) >= 1)
+        if (_resizeGrip != thumb || _resizeScreen is not { } screen) return;
+        if (!cancelled) ResizeFromPointer(thumb, horizontal, vertical);
+        _resizeGrip = null;
+        _resizeScreen = null;
+        _leftAt = null;
+        if (_stopped) return;
+        var bounds = _resizeBounds;
+        bool widthChanged = Math.Abs(bounds.Width - _resizeStartBounds.Width) >= 1;
+        bool heightChanged = Math.Abs(bounds.Height - _resizeStartBounds.Height) >= 1;
+        if (!cancelled && (widthChanged || heightChanged))
         {
-            var screen = NativeWindow.Screen(_service.State.Preferences.MonitorName);
-            double height = NativeWindow.WorkHeight(screen);
-            double position = DockLayout.PositionFromEdgeTop(height, _edge.Height, _resizeTop + _resizeHeight / 2 - _edge.Height / 2);
-            double floatingY = DockLayout.PositionFromEdgeTop(height, _resizeHeight, _resizeTop);
-            App.Try(() => _service.SaveWindowHeight(_resizeHeight, position, floatingY));
+            double workWidth = screen.WorkingArea.Width / _resizeScale, workHeight = screen.WorkingArea.Height / _resizeScale;
+            double position = DockLayout.PositionFromEdgeTop(workHeight, _edge.Height, bounds.Top + (bounds.Height - _edge.Height) / 2);
+            double floatingX = _docked ? _floatingX : DockLayout.PositionFromEdgeTop(workWidth, bounds.Width, bounds.Left);
+            double floatingY = DockLayout.PositionFromEdgeTop(workHeight, bounds.Height, bounds.Top);
+            App.Try(() => _service.SaveWindowSize(widthChanged ? bounds.Width : null, heightChanged ? bounds.Height : null,
+                position, floatingX, floatingY));
         }
         Reposition();
     }

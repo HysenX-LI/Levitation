@@ -52,7 +52,8 @@ var tests = new (string Name, Action Run)[]
     ("file reference failures and corrupt metadata preserve active data", FileReferenceFailures),
     ("pasted screenshots survive restart, trash, and full backup on another profile", PastedImageBackup),
     ("pasted screenshots roll back when recording or restoring them fails", PastedImageRollback),
-    ("reset window size preserves data and other preferences", ResetSize)
+    ("reset window size preserves data and other preferences", ResetSize),
+    ("left and corner resize keep their anchors and persist the changed axes", WindowGripResize)
 };
 int failures = 0;
 foreach (var test in tests)
@@ -627,6 +628,33 @@ static void HeightBounds()
     Check(new Preferences().AutoHideSeconds == .5);
     Check(JsonSerializer.Deserialize<Preferences>("{}", DataStore.Json)!.AutoHideSeconds == .5);
     Check(JsonSerializer.Deserialize<Preferences>("{\"autoHideSeconds\":2}", DataStore.Json)!.AutoHideSeconds == 2);
+}
+
+static void WindowGripResize()
+{
+    var left = DockLayout.ResizePanel(550, 90, 340, 460, 1200, 900, -200, null);
+    Check(left == (350, 90, 540, 460));
+    var corner = DockLayout.ResizePanel(30, 90, 340, 460, 1200, 900, -200, 700);
+    Check(corner == (12, 90, 358, 798));
+    var minimum = DockLayout.ResizePanel(550, 90, 340, 460, 1200, 900, 300, -800);
+    Check(minimum == (610, 90, 280, 280));
+    var maximum = DockLayout.ResizePanel(550, 90, 340, 460, 1200, 900, -600, null);
+    Check(maximum.Left + maximum.Width == 890 && maximum.Width == 640);
+    Check(DockLayout.PanelWidth(200, 500) == 176 && DockLayout.PanelWidth(1200, double.NaN) == 340);
+
+    using var dir = new TestDirectory();
+    using (var store = new DataStore(dir.Path))
+    {
+        var service = new TaskService(store);
+        service.SaveWindowPlacement(false, .4, .3, .2);
+        service.SaveWindowSize(left.Width, null, .8, .6, .9);
+        Check(store.State.Preferences.Height == null && store.State.Preferences.FloatingY == .2 && store.State.Preferences.DockPosition == .4);
+        service.SaveWindowSize(corner.Width, corner.Height, .65, .1, .25);
+    }
+    using var reopened = new DataStore(dir.Path);
+    var preferences = reopened.State.Preferences;
+    Check(preferences.Width == 358 && preferences.Height == 798 && !preferences.IsDocked);
+    Check(preferences.FloatingX == .1 && preferences.FloatingY == .25 && preferences.DockPosition == .65);
 }
 static void AutoHide()
 {

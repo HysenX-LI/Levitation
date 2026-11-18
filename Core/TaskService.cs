@@ -329,10 +329,27 @@ public sealed class TaskService(DataStore store, Func<DateTimeOffset>? clock = n
         foreach (var node in TaskTree.Walk([item]))
             if (node.Item.OccurrenceKey is { } key) { if (suppress) state.SuppressedOccurrences.Add(key); else state.SuppressedOccurrences.Remove(key); }
     }
-    public void SaveWindowHeight(double height, double dockPosition, double floatingY)
+    public void SaveWindowHeight(double height, double dockPosition, double floatingY) => SaveWindowSize(null, height, dockPosition, 0, floatingY);
+
+    public void SaveWindowSize(double? width, double? height, double dockPosition, double floatingX, double floatingY)
     {
-        if (!double.IsFinite(height) || height <= 0) throw new ArgumentOutOfRangeException(nameof(height));
-        Commit(s => { s.Preferences.Height = height; s.Preferences.DockPosition = DockLayout.Normalize(dockPosition); s.Preferences.FloatingY = DockLayout.Normalize(floatingY); });
+        if (width is double w && (!double.IsFinite(w) || w <= 0)) throw new ArgumentOutOfRangeException(nameof(width));
+        if (height is double h && (!double.IsFinite(h) || h <= 0)) throw new ArgumentOutOfRangeException(nameof(height));
+        if (width == null && height == null) return;
+        Commit(s =>
+        {
+            if (width.HasValue)
+            {
+                s.Preferences.Width = width.Value;
+                s.Preferences.FloatingX = DockLayout.Normalize(floatingX);
+            }
+            if (height.HasValue)
+            {
+                s.Preferences.Height = height.Value;
+                s.Preferences.DockPosition = DockLayout.Normalize(dockPosition);
+                s.Preferences.FloatingY = DockLayout.Normalize(floatingY);
+            }
+        });
     }
     public void SaveWindowPlacement(bool docked, double position, double floatingX, double floatingY)
     {
