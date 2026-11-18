@@ -78,7 +78,8 @@ public sealed partial class DataStore : IDisposable
         if (state.Tasks.Any(t => !ValidTask(t, 0, taskIds)) ||
             state.Cards.Any(c => !ValidCard(c)) ||
             state.Routines.Any(r => r == null || r.Title == null || r.Weekdays == null || !Enum.IsDefined(r.Frequency) || r.Weekdays.Any(d => !Enum.IsDefined(d))) ||
-            state.History.Any(h => h == null || h.Title == null) ||
+            state.History.Any(h => h == null || h.Title == null || (h.Subtasks?.Any(c => c == null || c.TaskId == Guid.Empty ||
+                c.Title == null || c.Depth < 1 || c.Depth > TaskTree.MaximumDepth) ?? false)) ||
             state.Trash.Any(t => t == null || (t.Task == null) == (t.Card == null) || (t.Task != null && !ValidTask(t.Task)) || (t.Card != null && !ValidCard(t.Card)) ||
                 (t.ParentTaskId.HasValue && (t.ParentTaskId == Guid.Empty || t.Task == null))) ||
             state.Tasks.Select(t => t.Id).Distinct().Count() != state.Tasks.Count ||

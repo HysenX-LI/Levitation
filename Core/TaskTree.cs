@@ -22,6 +22,12 @@ public static class TaskTree
     public static TaskLocation? Find(IEnumerable<TaskItem> roots, Guid id) => Walk(roots).FirstOrDefault(n => n.Item.Id == id);
     public static int Height(TaskItem item) => item.Subtasks.Count == 0 ? 0 : 1 + item.Subtasks.Max(Height);
     public static bool IsCompleted(TaskItem item) => item is Subtask child ? child.IsCompleted : item.CompletedAt.HasValue;
+
+    public static List<CompletionSubtask> CaptureSubtasks(TaskItem task) => Walk([task])
+        .Where(node => node.Item is Subtask && node.Depth > 0)
+        .Select(node => new CompletionSubtask(node.Item.Id, node.Item.Title, node.Depth,
+            IsCompleted(node.Item), IsCompleted(node.Item) ? node.Item.CompletedAt : null))
+        .ToList();
     public static bool CanPlace(IEnumerable<TaskItem> roots, TaskMove move)
     {
         if (!Enum.IsDefined(move.Position) || move.SourceId == move.TargetId) return false;

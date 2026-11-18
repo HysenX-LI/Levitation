@@ -250,13 +250,46 @@ internal sealed class SettingsWindow : Window
         var records = _service.State.History.Where(h => (year == 0 || h.Day.Year == year) && (month == 0 || h.Day.Month == month) && (day == 0 || h.Day.Day == day)).OrderByDescending(h => h.CompletedAt).ToList();
         _historyCount.Text = $"共 {records.Count} 条已完成待办"; _history.Children.Clear();
         if (records.Count == 0) _history.Children.Add(Ui.Text("这段时间还没有完成记录。", 12, true));
+        var activeCompletions = _service.State.Tasks.Where(task => task.CompletedAt.HasValue && task.CompletionId.HasValue)
+            .ToLookup(task => task.CompletionId!.Value);
         foreach (var group in records.GroupBy(h => h.Day))
         {
             var title = Ui.Text($"{group.Key:yyyy年M月d日}    {group.Count()} 项", 12); title.FontWeight = FontWeights.SemiBold; title.Margin = new Thickness(0, 16, 0, 8); _history.Children.Add(title);
             foreach (var record in group)
             {
                 var item = Ui.Text("✓  " + record.Title, 12); item.Margin = new Thickness(6, 7, 0, 7); item.ToolTip = record.CompletedAt.ToString("yyyy-MM-dd HH:mm:ss"); _history.Children.Add(item);
+                var subtasks = record.Subtasks;
+                if (subtasks == null && activeCompletions[record.Id].FirstOrDefault() is { } task)
+                    subtasks = TaskTree.CaptureSubtasks(task);
+                if (subtasks == null) continue;
+                foreach (var subtask in subtasks) _history.Children.Add(CreateHistorySubtaskRow(subtask));
             }
         }
+    }
+
+    private static Grid CreateHistorySubtaskRow(CompletionSubtask subtask)
+    {
+        var row = new Grid { MinHeight = 24, Margin = new Thickness(18 + (subtask.Depth - 1) * 14, 0, 8, 0) };
+        row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(18) });
+        row.ColumnDefinitions.Add(new ColumnDefinition());
+        row.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+
+        var status = Ui.Text(subtask.IsCompleted ? "✓" : "○", 11, muted: true);
+        var title = Ui.Text(subtask.Title, 12, muted: !subtask.IsCompleted);
+        title.Margin = new Thickness(0, 3, 0, 3);
+        Grid.SetColumn(title, 1);
+        row.Children.Add(status);
+        row.Children.Add(title);
+
+        if (subtask.IsCompleted && subtask.CompletedAt is { } completedAt)
+        {
+            var date = Ui.Text(completedAt.ToString("yyyy-M-d", CultureInfo.InvariantCulture), 11, muted: true);
+            date.Margin = new Thickness(16, 0, 0, 0);
+            date.TextWrapping = TextWrapping.NoWrap;
+            date.ToolTip = completedAt.ToString("yyyy-M-d HH:mm:ss", CultureInfo.InvariantCulture);
+            Grid.SetColumn(date, 2);
+            row.Children.Add(date);
+        }
+        return row;
     }
 }

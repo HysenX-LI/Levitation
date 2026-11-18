@@ -42,8 +42,7 @@ public sealed class TaskService(DataStore store, Func<DateTimeOffset>? clock = n
             item.Activity = TaskActivity.NotStarted;
             if (completed)
             {
-                var record = new Completion { TaskId = id, Title = item.Title, CompletedAt = Now, RoutineId = item.RoutineId };
-                s.History.Add(record); item.CompletionId = record.Id; item.CompletedAt = Now;
+                RecordCompletion(s, item, Now);
             }
             else
             {
@@ -53,6 +52,14 @@ public sealed class TaskService(DataStore store, Func<DateTimeOffset>? clock = n
                 if (item.Repeats && item.DueDate != Today) { item.RoutineId = null; item.Repeats = false; }
             }
         });
+    }
+    private static void RecordCompletion(AppState state, TaskItem task, DateTimeOffset completedAt)
+    {
+        var record = new Completion { TaskId = task.Id, Title = task.Title, CompletedAt = completedAt,
+            RoutineId = task.RoutineId, Subtasks = TaskTree.CaptureSubtasks(task) };
+        state.History.Add(record);
+        task.CompletionId = record.Id;
+        task.CompletedAt = completedAt;
     }
     public void StartTask(Guid id) => ChangeActivity(id, TaskActivity.Running);
     public void PauseTask(Guid id) => ChangeActivity(id, TaskActivity.Paused);
@@ -74,7 +81,21 @@ public sealed class TaskService(DataStore store, Func<DateTimeOffset>? clock = n
     {
         var child = TaskTree.Find(State.Tasks, parentId)?.Item.Subtasks.FirstOrDefault(c => c.Id == childId);
         if (child == null || child.IsCompleted == completed) return;
-        Commit(s => TaskTree.Find(s.Tasks, parentId)!.Item.Subtasks.Single(c => c.Id == childId).IsCompleted = completed);
+        DateTimeOffset? completedAt = completed ? Now : null;
+        Commit(s =>
+        {
+            var parent = TaskTree.Find(s.Tasks, parentId)!;
+            var item = parent.Item.Subtasks.Single(c => c.Id == childId);
+            item.IsCompleted = completed;
+            item.CompletedAt = completedAt;
+
+            if (parent.Root.CompletionId is not Guid completionId) return;
+            var record = s.History.FirstOrDefault(h => h.Id == completionId);
+            if (record == null) return;
+            record.Subtasks ??= TaskTree.CaptureSubtasks(parent.Root);
+            int index = record.Subtasks.FindIndex(c => c.TaskId == childId);
+            if (index >= 0) record.Subtasks[index] = record.Subtasks[index] with { IsCompleted = completed, CompletedAt = completedAt };
+        });
     }
     public void EditSubtask(Guid parentId, Guid childId, string title)
     {
@@ -312,10 +333,10 @@ public sealed class TaskService(DataStore store, Func<DateTimeOffset>? clock = n
             else
             {
                 var root = TaskTree.AsRoot(item.Item);
-                if (TaskTree.IsCompleted(item.Item) && root.CompletedAt == null)
+                if (TaskTree.IsCompleted(item.Item))
                 {
-                    var record = new Completion { TaskId = root.Id, Title = root.Title, CompletedAt = Now, RoutineId = root.RoutineId };
-                    root.CompletedAt = Now; root.CompletionId = record.Id; root.Activity = TaskActivity.NotStarted; s.History.Add(record);
+                    RecordCompletion(s, root, root.CompletedAt ?? Now);
+                    root.Activity = TaskActivity.NotStarted;
                 }
                 if (!TaskTree.IsCompleted(item.Item)) { root.CompletedAt = null; root.CompletionId = null; }
                 if (root.Repeats && root.DueDate != Today) { root.RoutineId = null; root.Repeats = false; }

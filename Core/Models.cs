@@ -91,8 +91,11 @@ public sealed class Completion : PersistentRecord
     public DateTimeOffset CompletedAt { get; set; }
     public Guid? RoutineId { get; set; }
     public bool IsLegacy { get; set; }
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] public List<CompletionSubtask>? Subtasks { get; set; }
     [JsonIgnore] public DateOnly Day => DateOnly.FromDateTime(CompletedAt.Date);
 }
+
+public sealed record CompletionSubtask(Guid TaskId, string Title, int Depth, bool IsCompleted, DateTimeOffset? CompletedAt);
 
 public sealed class TrashItem : PersistentRecord
 {

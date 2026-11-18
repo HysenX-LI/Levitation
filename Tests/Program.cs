@@ -17,6 +17,7 @@ var tests = new (string Name, Action Run)[]
     ("trash retains last ten and restores named cards", Trash),
     ("clearing trash persists without changing active data or recurring suppression", ClearTrash),
     ("completion history survives task deletion", History),
+    ("completion history keeps nested subtask dates and unknown older dates", SubtaskCompletionHistory),
     ("content names do not alter link targets", Links),
     ("incomplete valid JSON is not accepted as empty data", Incomplete),
     ("backup retention does not remove user exports", BackupRetention),
@@ -844,6 +845,51 @@ static void History()
     Check(service.State.History.Count == 1); service.RestoreTrash(service.State.Trash.Single().Id); Check(service.Pending.Count() == 1);
     Check(service.State.History.Single().Title == "完成后可回看"); service.Complete(id, true); service.Complete(id, false);
     Check(service.State.History.Count == 1);
+}
+
+static void SubtaskCompletionHistory()
+{
+    using var dir = new TestDirectory();
+    var firstDay = new DateTimeOffset(2026, 10, 1, 23, 0, 0, TimeSpan.FromHours(8));
+    var now = firstDay;
+    Guid child, grandchild, legacyChild, uncheckedChild;
+    using (var store = new DataStore(dir.Path))
+    {
+        var service = new TaskService(store, () => now);
+        service.AddTask("项目");
+        var parent = service.Pending.Single().Id;
+        child = service.AddSubtask(parent, "写提纲");
+        grandchild = service.AddSubtask(child, "查资料");
+        legacyChild = service.AddSubtask(parent, "旧记录");
+        uncheckedChild = service.AddSubtask(parent, "未完成的步骤");
+        var oldState = store.Snapshot();
+        oldState.Tasks.Single().Subtasks.Single(c => c.Id == legacyChild).IsCompleted = true;
+        store.Save(oldState);
+
+        service.CompleteSubtask(parent, child, true);
+        service.DeleteSubtask(parent, child);
+        service.RestoreTrash(store.State.Trash.Single().Id);
+        now = firstDay.AddHours(2);
+        service.CompleteSubtask(child, grandchild, true);
+        service.Complete(parent, true);
+        var record = store.State.History.Single();
+        Check(record.CompletedAt == now && record.Subtasks![0].CompletedAt == firstDay);
+        Check(record.Subtasks!.Single(c => c.TaskId == grandchild) is { Depth: 2 } nested && nested.CompletedAt == now);
+
+        service.CompleteSubtask(child, grandchild, false);
+        Check(store.State.History.Single().Subtasks!.Single(c => c.TaskId == grandchild) is { IsCompleted: false, CompletedAt: null });
+        now = now.AddMinutes(3);
+        service.CompleteSubtask(child, grandchild, true);
+        service.DeleteTask(parent);
+        service.ClearTrash();
+    }
+
+    using var reopened = new DataStore(dir.Path);
+    var history = reopened.State.History.Single().Subtasks!;
+    Check(history.Count == 4 && history[0].CompletedAt == firstDay);
+    Check(history.Single(c => c.TaskId == grandchild).CompletedAt == now);
+    Check(history.Single(c => c.TaskId == legacyChild) is { IsCompleted: true, CompletedAt: null });
+    Check(history.Single(c => c.TaskId == uncheckedChild) is { IsCompleted: false, CompletedAt: null });
 }
 static void Links()
 {
