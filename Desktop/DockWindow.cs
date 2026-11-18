@@ -350,14 +350,13 @@ internal sealed class DockWindow : Window
         mark.SetValue(UIElement.OpacityProperty, .55);
         if (corner)
         {
-            mark.SetValue(System.Windows.Shapes.Path.DataProperty, Geometry.Parse("M 0,9 L 9,0 M 5,10 L 10,5"));
+            // Concentric with the window's 19 DIP corner, in the 21 DIP grip area.
+            mark.SetValue(System.Windows.Shapes.Path.DataProperty, Geometry.Parse("M 4.57,9.29 A 15.5,15.5 0 0 0 11.71,16.43"));
+            mark.SetValue(System.Windows.Shapes.Shape.StretchProperty, Stretch.None);
             mark.SetResourceReference(System.Windows.Shapes.Shape.StrokeProperty, "ControlLine");
             mark.SetValue(System.Windows.Shapes.Shape.StrokeThicknessProperty, 1.3d);
             mark.SetValue(System.Windows.Shapes.Shape.StrokeStartLineCapProperty, PenLineCap.Round);
             mark.SetValue(System.Windows.Shapes.Shape.StrokeEndLineCapProperty, PenLineCap.Round);
-            mark.SetValue(FrameworkElement.MarginProperty, new Thickness(7, 0, 0, 5));
-            mark.SetValue(FrameworkElement.HorizontalAlignmentProperty, HorizontalAlignment.Left);
-            mark.SetValue(FrameworkElement.VerticalAlignmentProperty, VerticalAlignment.Bottom);
         }
         else
         {
