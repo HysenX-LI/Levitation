@@ -27,6 +27,7 @@
     <Compile Include="Desktop/**/*.cs" />
     <Page Include="Desktop/ScrollStyles.xaml" />
     <Page Include="Desktop/MenuStyles.xaml" />
+    <Page Include="Desktop/SettingsStyles.xaml" />
     <ProjectReference Include="Core/Levitation.Core.csproj" />
     <EmbeddedResource Include="PTD.ico" LogicalName="Levitation.PTD.ico" />
     <EmbeddedResource Include="LICENSE" LogicalName="Levitation.LICENSE" />

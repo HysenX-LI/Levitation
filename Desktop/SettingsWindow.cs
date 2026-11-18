@@ -14,8 +14,8 @@ internal sealed class SettingsWindow : Window
     private readonly TabItem _trashTasksTab = new(), _trashCardsTab = new();
     private readonly ComboBox _year = new(), _month = new(), _day = new();
     private readonly TextBlock _historyCount = Ui.Text("", 12, true);
-    private readonly TextBox _delay;
-    private readonly CheckBox _autoStart, _quickCapture;
+    private readonly TextBox _delay = Ui.Input("自动收起时间（秒）");
+    private readonly CheckBox _autoStart = new(), _quickCapture = new();
     private readonly ComboBox _theme = new(), _monitor = new();
     private readonly Button _clearTrash;
     private bool _updating;
@@ -26,58 +26,24 @@ internal sealed class SettingsWindow : Window
         _service = service; _store = store; _repositionDock = repositionDock;
         Title = "Levitation · 设置"; Width = 600; Height = 690;
         MinWidth = 430; MinHeight = 380; WindowStartupLocation = WindowStartupLocation.Manual; ShowInTaskbar = false; ResizeMode = ResizeMode.NoResize;
-        var tabs = new TabControl { Margin = new Thickness(16), Background = Brushes.Transparent, BorderThickness = new Thickness(0) };
+        Resources.MergedDictionaries.Add(new ResourceDictionary
+        {
+            Source = new Uri("/Levitation;component/Desktop/SettingsStyles.xaml", UriKind.Relative)
+        });
+
+        var tabs = SettingsLayout.TabStrip();
+        tabs.TabStripPlacement = Dock.Left;
+        SizeChanged += (_, e) => tabs.TabStripPlacement = e.NewSize.Width >= 540 ? Dock.Left : Dock.Top;
         Content = tabs;
 
-        var general = new StackPanel { Margin = new Thickness(12) };
-        _delay = Ui.Input("自动收起等待时间", service.State.Preferences.AutoHideSeconds.ToString(CultureInfo.CurrentCulture));
-        _delay.Width = 96;
-        var delayField = new StackPanel { Orientation = Orientation.Horizontal }; delayField.Children.Add(_delay);
-        var unit = Ui.Text("秒", 12, true); unit.Margin = new Thickness(10, 0, 0, 0); delayField.Children.Add(unit);
-        general.Children.Add(Ui.Field("自动收起等待时间（0.2～30 秒）", delayField));
-        var hint = Ui.Text("默认离开 0.5 秒后收起。打字、拖动或固定展开时暂停，未提交的草稿会保留。", 12, true); hint.Margin = new Thickness(0, 8, 0, 9); general.Children.Add(hint);
-        _theme.Items.Add("跟随系统"); _theme.Items.Add("浅色"); _theme.Items.Add("深色");
-        _theme.SelectedIndex = service.State.Preferences.Theme switch { "Light" => 1, "Dark" => 2, _ => 0 }; _theme.Height = _theme.MinHeight = 34;
-        Ui.Label(general, "外观", _theme);
-        foreach (var screen in System.Windows.Forms.Screen.AllScreens)
-            _monitor.Items.Add(new ComboBoxItem { Content = screen.DeviceName + (screen.Primary ? "（主显示器）" : ""), Tag = screen.DeviceName });
-        var selected = _monitor.Items.OfType<ComboBoxItem>().FirstOrDefault(i => (string)i.Tag == service.State.Preferences.MonitorName);
-        _monitor.SelectedItem = selected ?? _monitor.Items.OfType<ComboBoxItem>().FirstOrDefault(i => (string)i.Tag == NativeWindow.Screen(null).DeviceName);
-        _monitor.Height = _monitor.MinHeight = 34; Ui.Label(general, "停靠的显示器", _monitor);
-        _autoStart = new CheckBox { Content = "开机时自动启动 Levitation", IsChecked = AutoStart.Enabled, Margin = new Thickness(0, 20, 0, 12) }; general.Children.Add(_autoStart);
-        _quickCapture = new CheckBox { Content = "启用 Win+W 快速记录待办", IsChecked = service.State.Preferences.QuickCaptureEnabled, Margin = new Thickness(0, 0, 0, 6) }; general.Children.Add(_quickCapture);
-        general.Children.Add(Ui.Text("软件运行且此项启用时，Win+W 用于快速记录；Windows 小组件的同名快捷键会暂时被占用。", 11, true));
-        general.Children.Add(Ui.Buttons(Ui.Action("恢复默认窗口大小", () =>
-        {
-            _service.ResetWindowSize(); _repositionDock();
-        }), Ui.Action("保存设置", SaveGeneral, true)));
-        var sizeHint = Ui.Text("恢复主浮窗及两张卡片的默认尺寸，保留内容与其他设置。", 11, true); sizeHint.Margin = new Thickness(0, 8, 0, 0); general.Children.Add(sizeHint);
-        tabs.Items.Add(Tab("浮窗行为", Ui.Scroll(general)));
+        _clearTrash = SettingsLayout.Action("清空垃圾堆", ClearTrash, danger: true);
+        tabs.Items.Add(SettingsLayout.Tab("浮窗行为", GeneralPage()));
+        tabs.Items.Add(SettingsLayout.Tab("垃圾堆", TrashPage()));
+        tabs.Items.Add(SettingsLayout.Tab("完成历史", HistoryPage()));
+        tabs.Items.Add(SettingsLayout.Tab("数据与备份", DataPage()));
+        tabs.Items.Add(SettingsLayout.Tab("关于", AboutPage()));
 
-        var trashBody = new Grid { Margin = new Thickness(12) };
-        trashBody.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto }); trashBody.RowDefinitions.Add(new RowDefinition());
-        _clearTrash = Ui.Action("清空垃圾堆", ClearTrash); _clearTrash.SetResourceReference(Control.ForegroundProperty, "Danger");
-        var trashActions = Ui.Buttons(_clearTrash); trashActions.Margin = new Thickness(0); Panel.SetZIndex(trashActions, 1);
-        var trashTabs = new TabControl { Background = Brushes.Transparent, BorderThickness = new Thickness(0) };
-        _trashTasks.Margin = _trashCards.Margin = new Thickness(0, 12, 0, 0);
-        _trashTasksTab.Header = "待办"; _trashTasksTab.Content = Ui.Scroll(_trashTasks); _trashTasksTab.Padding = new Thickness(16, 7, 16, 7);
-        _trashCardsTab.Header = "常用内容"; _trashCardsTab.Content = Ui.Scroll(_trashCards); _trashCardsTab.Padding = new Thickness(16, 7, 16, 7);
-        trashTabs.Items.Add(_trashTasksTab); trashTabs.Items.Add(_trashCardsTab); Grid.SetRowSpan(trashTabs, 2); trashBody.Children.Add(trashTabs); trashBody.Children.Add(trashActions);
-        tabs.Items.Add(Tab("垃圾堆", trashBody));
-
-        var historyRoot = new Grid { Margin = new Thickness(12) };
-        historyRoot.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto }); historyRoot.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto }); historyRoot.RowDefinitions.Add(new RowDefinition());
-        var filters = new UniformGrid { Columns = 3, Margin = new Thickness(0, 2, 0, 12) };
-        foreach (var (label, combo) in new[] { ("年份", _year), ("月份", _month), ("日期", _day) })
-        {
-            combo.Height = combo.MinHeight = 34; var field = Ui.Field(label, combo); field.Margin = new Thickness(0, 0, 8, 0); filters.Children.Add(field);
-        }
-        historyRoot.Children.Add(filters); _historyCount.Margin = new Thickness(0, 0, 0, 12); Grid.SetRow(_historyCount, 1); historyRoot.Children.Add(_historyCount);
-        var historyScroll = Ui.Scroll(_history); Grid.SetRow(historyScroll, 2); historyRoot.Children.Add(historyScroll);
-        tabs.Items.Add(Tab("完成历史", historyRoot));
-        tabs.Items.Add(Tab("数据与备份", DataPanel()));
-        tabs.Items.Add(Tab("关于", AboutPanel()));
-
+        ReloadGeneral();
         FillHistoryFilters(true);
         _year.SelectionChanged += (_, _) => { if (_updating) return; _month.SelectedIndex = 0; _day.SelectedIndex = 0; FillDays(); RefreshHistory(); };
         _month.SelectionChanged += (_, _) => { if (_updating) return; _day.SelectedIndex = 0; FillDays(); RefreshHistory(); };
@@ -85,38 +51,120 @@ internal sealed class SettingsWindow : Window
         RefreshData();
     }
 
-    private static TabItem Tab(string title, UIElement content) => new() { Header = title, Content = content, Padding = new Thickness(9, 7, 9, 7) };
+    private UIElement GeneralPage()
+    {
+        foreach (var text in new[] { "跟随系统", "浅色", "深色" }) _theme.Items.Add(text);
+        foreach (var screen in System.Windows.Forms.Screen.AllScreens)
+        {
+            const string displayPrefix = @"\\.\DISPLAY";
+            string label = screen.DeviceName.StartsWith(displayPrefix, StringComparison.OrdinalIgnoreCase)
+                ? $"显示器 {screen.DeviceName[displayPrefix.Length..]}" : screen.DeviceName;
+            _monitor.Items.Add(new ComboBoxItem
+            {
+                Content = label + (screen.Primary ? "（主屏）" : ""),
+                ToolTip = screen.DeviceName,
+                Tag = screen.DeviceName
+            });
+        }
+        SettingsLayout.Field(_theme, 138);
+        SettingsLayout.Field(_monitor, 138);
+        SettingsLayout.Field(_delay, 67);
 
-    private UIElement AboutPanel()
+        var unit = Ui.Text("秒", 11, true);
+        unit.Margin = new Thickness(7, 0, 0, 0);
+        var delayField = new StackPanel { Orientation = Orientation.Horizontal };
+        delayField.Children.Add(_delay);
+        delayField.Children.Add(unit);
+
+        var appearance = SettingsLayout.Section("显示与停靠",
+            SettingsLayout.Row("主题", null, _theme),
+            SettingsLayout.Row("停靠显示器", null, _monitor),
+            SettingsLayout.Row("自动收起", "鼠标移开后等待 0.2～30 秒。默认 0.5 秒。", delayField),
+            SettingsLayout.Row("窗口大小", "恢复浮窗和两张内容卡片的默认尺寸。",
+                SettingsLayout.Action("恢复默认", () =>
+                {
+                    _service.ResetWindowSize();
+                    _repositionDock();
+                })));
+        var startup = SettingsLayout.Section("启动与快捷键",
+            SettingsLayout.Row("开机启动", "登录 Windows 时启动 Levitation。", _autoStart),
+            SettingsLayout.Row("快速记录待办", "使用 Win+W，会暂时占用 Windows 小组件快捷键。", _quickCapture));
+
+        var save = SettingsLayout.Action("保存设置", SaveGeneral, primary: true);
+        return SettingsLayout.Page("浮窗行为", null, Ui.Scroll(Ui.Stack(appearance, startup)), save);
+    }
+
+    private UIElement TrashPage()
+    {
+        var tabs = SettingsLayout.TabStrip();
+        tabs.Tag = _clearTrash;
+        _trashTasks.Margin = _trashCards.Margin = new Thickness(0, 9, 0, 0);
+        _trashTasksTab.Header = "待办";
+        _trashTasksTab.Content = Ui.Scroll(_trashTasks);
+        _trashCardsTab.Header = "常用内容";
+        _trashCardsTab.Content = Ui.Scroll(_trashCards);
+        tabs.Items.Add(_trashTasksTab);
+        tabs.Items.Add(_trashCardsTab);
+        return SettingsLayout.Page("垃圾堆", "保留最近删除的 10 项，可从这里恢复。", tabs);
+    }
+
+    private UIElement HistoryPage()
+    {
+        var body = new DockPanel();
+        var filters = new UniformGrid { Columns = 3 };
+        foreach (var (label, combo) in new[] { ("年份", _year), ("月份", _month), ("日期", _day) })
+        {
+            SettingsLayout.Field(combo);
+            System.Windows.Automation.AutomationProperties.SetName(combo, label);
+            var field = Ui.Field(label, combo);
+            field.Margin = filters.Children.Count < 2 ? new Thickness(0, 0, 8, 0) : new Thickness(0);
+            filters.Children.Add(field);
+        }
+        var filterSurface = SettingsLayout.Surface(filters);
+        filterSurface.Padding = new Thickness(10, 8, 10, 10);
+        DockPanel.SetDock(filterSurface, Dock.Top);
+        body.Children.Add(filterSurface);
+        _historyCount.Margin = new Thickness(0, 11, 0, 7);
+        DockPanel.SetDock(_historyCount, Dock.Top);
+        body.Children.Add(_historyCount);
+        body.Children.Add(Ui.Scroll(_history));
+        return SettingsLayout.Page("完成历史", null, body);
+    }
+
+    private UIElement AboutPage()
     {
         var assembly = typeof(SettingsWindow).Assembly;
-        var title = Ui.Text($"Levitation {assembly.GetName().Version?.ToString(3)}", 18);
-        title.FontWeight = FontWeights.SemiBold;
-        title.Margin = new Thickness(0, 0, 0, 12);
-        var notices = Ui.Text("基于 li5bo5/WinKit 2.11 重构。\nWinKit © 2026 li5bo5. All Rights Reserved.\n本软件按 GNU AGPL-3.0 发布，你可按该许可证重新分发。本软件按现状提供，无担保。");
-        var actions = Ui.Buttons(
-            Ui.Action("项目源码", () => Process.Start(new ProcessStartInfo("https://github.com/HysenX-LI/Levitation") { UseShellExecute = true })),
-            Ui.Action("查看许可证", () =>
-            {
-                using var stream = assembly.GetManifestResourceStream("Levitation.LICENSE") ?? throw new InvalidOperationException("未找到许可证正文。");
-                using var reader = new StreamReader(stream);
-                var text = Ui.Input("AGPL-3.0 许可证正文", multiline: true);
-                text.MaxLength = 0;
-                text.Text = reader.ReadToEnd();
-                text.IsReadOnly = true;
-                text.MaxHeight = double.PositiveInfinity;
-                text.Margin = new Thickness(12);
-                var dialog = Ui.Dialog("GNU AGPL-3.0", this, 540);
-                dialog.SizeToContent = SizeToContent.Manual;
-                dialog.Height = Math.Min(480, dialog.MaxHeight);
-                dialog.Content = text;
-                dialog.InputBindings.Add(new KeyBinding(ApplicationCommands.Close, Key.Escape, ModifierKeys.None));
-                dialog.CommandBindings.Add(new CommandBinding(ApplicationCommands.Close, (_, _) => dialog.Close()));
-                dialog.ShowDialog();
-            }));
-        var panel = Ui.Stack(title, notices, actions);
-        panel.Margin = new Thickness(12);
-        return Ui.Scroll(panel);
+        var version = Ui.Text(assembly.GetName().Version?.ToString(3) ?? "", 12, true);
+        var app = SettingsLayout.Section("应用",
+            SettingsLayout.Row("Levitation", "Windows 侧边待办与常用内容浮窗。", version),
+            SettingsLayout.Row("项目源码", "在 GitHub 查看源码和发布记录。",
+                SettingsLayout.Action("打开 GitHub", () => Process.Start(new ProcessStartInfo("https://github.com/HysenX-LI/Levitation") { UseShellExecute = true }))));
+        var credits = SettingsLayout.Section("开源与许可",
+            SettingsLayout.Row("GNU AGPL-3.0", "按许可证重新分发。本软件按现状提供，无担保。",
+                SettingsLayout.Action("查看许可证", ViewLicense)),
+            SettingsLayout.Row("WinKit 2.11", "Levitation 基于 li5bo5/WinKit 2.11 重构。\nWinKit © 2026 li5bo5. All Rights Reserved."));
+        return SettingsLayout.Page("关于", null, Ui.Scroll(Ui.Stack(app, credits)));
+    }
+
+    private void ViewLicense()
+    {
+        var assembly = typeof(SettingsWindow).Assembly;
+        using var stream = assembly.GetManifestResourceStream("Levitation.LICENSE")
+            ?? throw new InvalidOperationException("未找到许可证正文。");
+        using var reader = new StreamReader(stream);
+        var text = Ui.Input("AGPL-3.0 许可证正文", multiline: true);
+        text.MaxLength = 0;
+        text.Text = reader.ReadToEnd();
+        text.IsReadOnly = true;
+        text.MaxHeight = double.PositiveInfinity;
+        text.Margin = new Thickness(12);
+        var dialog = Ui.Dialog("GNU AGPL-3.0", this, 540);
+        dialog.SizeToContent = SizeToContent.Manual;
+        dialog.Height = Math.Min(480, dialog.MaxHeight);
+        dialog.Content = text;
+        dialog.InputBindings.Add(new KeyBinding(ApplicationCommands.Close, Key.Escape, ModifierKeys.None));
+        dialog.CommandBindings.Add(new CommandBinding(ApplicationCommands.Close, (_, _) => dialog.Close()));
+        dialog.ShowDialog();
     }
 
     private void SaveGeneral()
@@ -140,43 +188,50 @@ internal sealed class SettingsWindow : Window
         _repositionDock();
     }
 
-    private UIElement DataPanel()
+    private UIElement DataPage()
     {
-        var panel = new StackPanel { Margin = new Thickness(12) };
-        var heading = Ui.Text("数据独立于程序保存", 15); heading.FontWeight = FontWeights.SemiBold; heading.Margin = new Thickness(0, 9, 0, 12); panel.Children.Add(heading);
-        panel.Children.Add(Ui.Text("更新时替换程序文件即可；原有待办、完成历史、日常安排和卡片会继续读取。数据不放在版本号目录或安装目录中。", 12, true));
-        var path = Ui.Input("数据保存目录", _store.DirectoryPath); path.IsReadOnly = true; path.Margin = new Thickness(0, 12, 0, 8); panel.Children.Add(path);
-        var backupHint = Ui.Text("自动保留上一个有效版本及最近 14 份每日快照。换电脑前，可导出包含全部数据的备份文件。", 12, true); backupHint.Margin = new Thickness(0, 20, 0, 10); panel.Children.Add(backupHint);
-        var actions = new UniformGrid { Columns = 2, Margin = new Thickness(0, 10, 0, 10), MaxWidth = 480, HorizontalAlignment = HorizontalAlignment.Stretch };
-        void AddAction(string label, Action action)
-        {
-            var button = Ui.Action(label, action); button.Margin = new Thickness(5); button.MinHeight = 64; button.FontSize = 12;
-            button.HorizontalAlignment = HorizontalAlignment.Stretch; actions.Children.Add(button);
-        }
-        AddAction("打开数据文件夹", () => Process.Start(new ProcessStartInfo(_store.DirectoryPath) { UseShellExecute = true }));
-        AddAction("导出完整数据备份", () =>
-        {
-            var picker = new SaveFileDialog { Filter = "Levitation 备份 (*.json)|*.json", FileName = $"Levitation-backup-{DateTime.Now:yyyyMMdd-HHmmss}.json", AddExtension = true };
-            if (picker.ShowDialog(this) == true) _store.Export(picker.FileName);
-        });
-        AddAction("从备份文件恢复数据", () =>
-        {
-            var picker = new OpenFileDialog { Filter = "Levitation 备份 (*.json)|*.json" };
-            if (picker.ShowDialog(this) != true) return;
-            var preview = DataStore.ReadFile(picker.FileName);
-            if (MessageBox.Show(this, $"备份包含 {preview.Tasks.Count} 条待办、{preview.Cards.Count} 张卡片和 {preview.History.Count} 条完成记录。\n\n恢复会替换当前数据；操作前会自动另存当前数据，可用同一入口还原。", "恢复完整备份", MessageBoxButton.OKCancel, MessageBoxImage.Question) != MessageBoxResult.OK) return;
-            _service.RestoreBackup(picker.FileName); RefreshData(); ReloadGeneral();
-            Ui.ApplyTheme(_service.State.Preferences.Theme);
-            _repositionDock();
-        });
-        var legacyHint = Ui.Text("旧版迁移：首次在旧程序旁启动时自动读取 Data。若新版放在其他位置，请选择旧版 Data 文件夹。源文件会保留，旧剪贴板历史不会自动加入常用内容。", 12, true); legacyHint.Margin = new Thickness(0, 20, 0, 8); panel.Children.Add(legacyHint);
-        AddAction("导入旧版软件数据", () =>
-        {
-            var picker = new OpenFolderDialog { Title = "选择旧版 WinKit 的 Data 文件夹", Multiselect = false };
-            if (picker.ShowDialog(this) == true) MessageBox.Show(this, $"已导入 {_service.ImportLegacy(picker.FolderName)} 条记录；相同来源不会重复导入。", "Levitation");
-        });
-        panel.Children.Insert(panel.Children.IndexOf(legacyHint), actions);
-        return Ui.Scroll(panel);
+        var path = Ui.Input("数据保存目录", _store.DirectoryPath);
+        path.IsReadOnly = true;
+        path.ToolTip = _store.DirectoryPath;
+        path.Margin = new Thickness(12, 0, 12, 10);
+        SettingsLayout.Field(path);
+        var location = SettingsLayout.Section("存储位置",
+            Ui.Stack(SettingsLayout.Row("数据目录", "待办、历史和常用内容保存在 Windows 用户目录。",
+                SettingsLayout.Action("打开文件夹", () => Process.Start(new ProcessStartInfo(_store.DirectoryPath) { UseShellExecute = true }))), path));
+        var backup = SettingsLayout.Section("备份与恢复",
+            SettingsLayout.Row("完整备份", "将待办、常用内容、截图和设置导出为一个文件。", SettingsLayout.Action("导出…", ExportBackup)),
+            SettingsLayout.Row("恢复备份", "恢复前会自动备份当前数据。", SettingsLayout.Action("选择备份…", RestoreBackup)),
+            SettingsLayout.Row("自动快照", "保留上一个有效版本和最近 14 份每日快照。"));
+        var migration = SettingsLayout.Section("迁移",
+            SettingsLayout.Row("导入 WinKit 数据", "选择旧版 Data 文件夹导入，原文件会保留。", SettingsLayout.Action("选择文件夹…", ImportLegacy)));
+        return SettingsLayout.Page("数据与备份", null, Ui.Scroll(Ui.Stack(location, backup, migration)));
+    }
+
+    private void ExportBackup()
+    {
+        var picker = new SaveFileDialog { Filter = "Levitation 备份 (*.json)|*.json",
+            FileName = $"Levitation-backup-{DateTime.Now:yyyyMMdd-HHmmss}.json", AddExtension = true };
+        if (picker.ShowDialog(this) == true) _store.Export(picker.FileName);
+    }
+
+    private void RestoreBackup()
+    {
+        var picker = new OpenFileDialog { Filter = "Levitation 备份 (*.json)|*.json" };
+        if (picker.ShowDialog(this) != true) return;
+        var preview = DataStore.ReadFile(picker.FileName);
+        if (MessageBox.Show(this, $"备份包含 {preview.Tasks.Count} 条待办、{preview.Cards.Count} 张卡片和 {preview.History.Count} 条完成记录。\n\n恢复会替换当前数据；操作前会自动另存当前数据，可用同一入口还原。", "恢复完整备份", MessageBoxButton.OKCancel, MessageBoxImage.Question) != MessageBoxResult.OK) return;
+        _service.RestoreBackup(picker.FileName);
+        RefreshData();
+        ReloadGeneral();
+        Ui.ApplyTheme(_service.State.Preferences.Theme);
+        _repositionDock();
+    }
+
+    private void ImportLegacy()
+    {
+        var picker = new OpenFolderDialog { Title = "选择旧版 WinKit 的 Data 文件夹", Multiselect = false };
+        if (picker.ShowDialog(this) == true)
+            MessageBox.Show(this, $"已导入 {_service.ImportLegacy(picker.FolderName)} 条记录；相同来源不会重复导入。", "Levitation");
     }
 
     private void ReloadGeneral()
@@ -198,21 +253,28 @@ internal sealed class SettingsWindow : Window
             var entries = _service.State.Trash.Where(t => tasks ? t.Task != null : t.Card != null).ToList();
             var list = tasks ? _trashTasks : _trashCards;
             (tasks ? _trashTasksTab : _trashCardsTab).Header = $"{(tasks ? "待办" : "常用内容")}  {entries.Count}";
-            if (entries.Count == 0) list.Children.Add(Ui.Text(tasks ? "暂无删除的待办" : "暂无删除的常用内容", 12, true));
+            if (entries.Count == 0)
+            {
+                list.Children.Add(SettingsLayout.Empty(tasks ? "暂无删除的待办" : "暂无删除的常用内容"));
+                continue;
+            }
+            var rows = new List<UIElement>();
             foreach (var entry in entries)
             {
-                var row = new DockPanel { Margin = new Thickness(0, 4, 0, 4) };
-                var restore = Ui.Icon(Ui.Restore, "恢复", () => _service.RestoreTrash(entry.Id)); DockPanel.SetDock(restore, Dock.Right); row.Children.Add(restore);
+                var restore = SettingsLayout.Action("恢复", () => _service.RestoreTrash(entry.Id));
+                System.Windows.Automation.AutomationProperties.SetName(restore, $"恢复：{entry.Title}");
                 if (entry.ParentTaskId.HasValue)
                 {
                     var parent = TaskTree.Find(_service.State.Tasks, entry.ParentTaskId.Value);
                     restore.ToolTip = parent != null && parent.Depth + 1 + TaskTree.Height(entry.Task!) <= TaskTree.MaximumDepth
                         ? "恢复到原待办下" : "原位置不存在或层级已满，恢复为普通待办";
                 }
-                var title = Ui.Text(entry.Title); title.MaxHeight = 45; title.TextTrimming = TextTrimming.CharacterEllipsis;
-                var detail = Ui.Text((entry.ParentTaskId.HasValue ? $"子待办 · {entry.ParentTitle}\n" : "") + $"{entry.DeletedAt:yyyy-MM-dd HH:mm}", 11, true); detail.Margin = new Thickness(0, 4, 0, 0);
-                row.Children.Add(Ui.Stack(title, detail)); var card = Ui.Card(row); card.Margin = new Thickness(0, 0, 0, 7); list.Children.Add(card);
+                var detail = entry.ParentTaskId.HasValue
+                    ? $"子待办 · {entry.ParentTitle}   {entry.DeletedAt:yyyy-M-d HH:mm}"
+                    : entry.DeletedAt.ToString("yyyy-M-d HH:mm", CultureInfo.InvariantCulture);
+                rows.Add(SettingsLayout.Row(entry.Title, detail, restore, singleLineTitle: true));
             }
+            list.Children.Add(SettingsLayout.Surface(SettingsLayout.SeparatedRows(rows)));
         }
         FillHistoryFilters(false); RefreshHistory();
     }
@@ -249,27 +311,34 @@ internal sealed class SettingsWindow : Window
         int year = Selected(_year), month = Selected(_month), day = Selected(_day);
         var records = _service.State.History.Where(h => (year == 0 || h.Day.Year == year) && (month == 0 || h.Day.Month == month) && (day == 0 || h.Day.Day == day)).OrderByDescending(h => h.CompletedAt).ToList();
         _historyCount.Text = $"共 {records.Count} 条已完成待办"; _history.Children.Clear();
-        if (records.Count == 0) _history.Children.Add(Ui.Text("这段时间还没有完成记录。", 12, true));
+        if (records.Count == 0) _history.Children.Add(SettingsLayout.Empty("这段时间还没有完成记录。"));
         var activeCompletions = _service.State.Tasks.Where(task => task.CompletedAt.HasValue && task.CompletionId.HasValue)
             .ToLookup(task => task.CompletionId!.Value);
         foreach (var group in records.GroupBy(h => h.Day))
         {
-            var title = Ui.Text($"{group.Key:yyyy年M月d日}    {group.Count()} 项", 12); title.FontWeight = FontWeights.SemiBold; title.Margin = new Thickness(0, 16, 0, 8); _history.Children.Add(title);
+            var rows = new List<UIElement>();
             foreach (var record in group)
             {
-                var item = Ui.Text("✓  " + record.Title, 12); item.Margin = new Thickness(6, 7, 0, 7); item.ToolTip = record.CompletedAt.ToString("yyyy-MM-dd HH:mm:ss"); _history.Children.Add(item);
+                var entry = new StackPanel { Margin = new Thickness(0, 6, 0, 6) };
+                var item = Ui.Text("✓  " + record.Title, 12);
+                item.FontWeight = FontWeights.Medium;
+                item.Margin = new Thickness(12, 4, 12, 4);
+                item.ToolTip = record.CompletedAt.ToString("yyyy-M-d HH:mm:ss", CultureInfo.InvariantCulture);
+                entry.Children.Add(item);
                 var subtasks = record.Subtasks;
                 if (subtasks == null && activeCompletions[record.Id].FirstOrDefault() is { } task)
                     subtasks = TaskTree.CaptureSubtasks(task);
-                if (subtasks == null) continue;
-                foreach (var subtask in subtasks) _history.Children.Add(CreateHistorySubtaskRow(subtask));
+                if (subtasks != null)
+                    foreach (var subtask in subtasks) entry.Children.Add(CreateHistorySubtaskRow(subtask));
+                rows.Add(entry);
             }
+            _history.Children.Add(SettingsLayout.Section($"{group.Key:yyyy年M月d日}   ·   {rows.Count} 项", rows.ToArray()));
         }
     }
 
     private static Grid CreateHistorySubtaskRow(CompletionSubtask subtask)
     {
-        var row = new Grid { MinHeight = 24, Margin = new Thickness(18 + (subtask.Depth - 1) * 14, 0, 8, 0) };
+        var row = new Grid { MinHeight = 24, Margin = new Thickness(25 + (subtask.Depth - 1) * 14, 0, 12, 0) };
         row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(18) });
         row.ColumnDefinitions.Add(new ColumnDefinition());
         row.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
