@@ -1,0 +1,123 @@
+<ResourceDictionary xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+                    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+    <!-- Rounded thumb / transparent page track pattern, inspired by WPF UI.
+         Independently implemented without arrow buttons or visible track borders. -->
+    <ControlTemplate x:Key="ScrollPageTemplate" TargetType="RepeatButton">
+        <Border Background="Transparent" />
+    </ControlTemplate>
+    <Style x:Key="ScrollPill" TargetType="Thumb">
+        <Setter Property="Focusable" Value="False" />
+        <Setter Property="OverridesDefaultStyle" Value="True" />
+        <Setter Property="Template">
+            <Setter.Value>
+                <ControlTemplate TargetType="Thumb">
+                    <Border Background="Transparent">
+                        <Border x:Name="Pill" Width="6" Margin="0,1"
+                                HorizontalAlignment="Center" CornerRadius="3"
+                                Background="{DynamicResource ScrollThumb}" />
+                    </Border>
+                    <ControlTemplate.Triggers>
+                        <Trigger Property="IsMouseOver" Value="True">
+                            <Setter TargetName="Pill" Property="Width" Value="8" />
+                            <Setter TargetName="Pill" Property="CornerRadius" Value="4" />
+                            <Setter TargetName="Pill" Property="Background" Value="{DynamicResource ScrollThumbHover}" />
+                        </Trigger>
+                        <Trigger Property="IsDragging" Value="True">
+                            <Setter TargetName="Pill" Property="Width" Value="8" />
+                            <Setter TargetName="Pill" Property="Background" Value="{DynamicResource ScrollThumbHover}" />
+                        </Trigger>
+                    </ControlTemplate.Triggers>
+                </ControlTemplate>
+            </Setter.Value>
+        </Setter>
+    </Style>
+    <ControlTemplate x:Key="VerticalScrollPill" TargetType="ScrollBar">
+        <Border Background="Transparent" Padding="0,2">
+            <Track x:Name="PART_Track" Orientation="Vertical" IsDirectionReversed="True"
+                   Minimum="{TemplateBinding Minimum}" Maximum="{TemplateBinding Maximum}"
+                   Value="{TemplateBinding Value}" ViewportSize="{TemplateBinding ViewportSize}">
+                <Track.DecreaseRepeatButton>
+                    <RepeatButton Command="ScrollBar.PageUpCommand" Focusable="False" Template="{StaticResource ScrollPageTemplate}" />
+                </Track.DecreaseRepeatButton>
+                <Track.Thumb><Thumb Style="{StaticResource ScrollPill}" /></Track.Thumb>
+                <Track.IncreaseRepeatButton>
+                    <RepeatButton Command="ScrollBar.PageDownCommand" Focusable="False" Template="{StaticResource ScrollPageTemplate}" />
+                </Track.IncreaseRepeatButton>
+            </Track>
+        </Border>
+    </ControlTemplate>
+    <ControlTemplate x:Key="HorizontalScrollPill" TargetType="ScrollBar">
+        <Border Background="Transparent" Padding="2,0">
+            <Track x:Name="PART_Track" Orientation="Horizontal" IsDirectionReversed="False"
+                   Minimum="{TemplateBinding Minimum}" Maximum="{TemplateBinding Maximum}"
+                   Value="{TemplateBinding Value}" ViewportSize="{TemplateBinding ViewportSize}">
+                <Track.DecreaseRepeatButton>
+                    <RepeatButton Command="ScrollBar.PageLeftCommand" Focusable="False" Template="{StaticResource ScrollPageTemplate}" />
+                </Track.DecreaseRepeatButton>
+                <Track.Thumb>
+                    <Thumb Focusable="False">
+                        <Thumb.Template>
+                            <ControlTemplate TargetType="Thumb">
+                                <Border Background="Transparent">
+                                    <Border x:Name="Pill" Height="6" Margin="1,0"
+                                            VerticalAlignment="Center" CornerRadius="3" Background="{DynamicResource ScrollThumb}" />
+                                </Border>
+                                <ControlTemplate.Triggers>
+                                    <Trigger Property="IsMouseOver" Value="True">
+                                        <Setter TargetName="Pill" Property="Background" Value="{DynamicResource ScrollThumbHover}" />
+                                    </Trigger>
+                                    <Trigger Property="IsDragging" Value="True">
+                                        <Setter TargetName="Pill" Property="Background" Value="{DynamicResource ScrollThumbHover}" />
+                                    </Trigger>
+                                </ControlTemplate.Triggers>
+                            </ControlTemplate>
+                        </Thumb.Template>
+                    </Thumb>
+                </Track.Thumb>
+                <Track.IncreaseRepeatButton>
+                    <RepeatButton Command="ScrollBar.PageRightCommand" Focusable="False" Template="{StaticResource ScrollPageTemplate}" />
+                </Track.IncreaseRepeatButton>
+            </Track>
+        </Border>
+    </ControlTemplate>
+    <Style TargetType="ScrollBar">
+        <Setter Property="OverridesDefaultStyle" Value="True" />
+        <Setter Property="Focusable" Value="False" />
+        <Setter Property="Background" Value="Transparent" />
+        <Setter Property="BorderThickness" Value="0" />
+        <Setter Property="Width" Value="12" />
+        <Setter Property="Template" Value="{StaticResource VerticalScrollPill}" />
+        <Style.Triggers>
+            <Trigger Property="Orientation" Value="Horizontal">
+                <Setter Property="Width" Value="Auto" />
+                <Setter Property="Height" Value="12" />
+                <Setter Property="Template" Value="{StaticResource HorizontalScrollPill}" />
+            </Trigger>
+        </Style.Triggers>
+    </Style>
+    <Style TargetType="ScrollViewer">
+        <Setter Property="Background" Value="Transparent" />
+        <Setter Property="BorderThickness" Value="0" />
+        <Setter Property="Template">
+            <Setter.Value>
+                <ControlTemplate TargetType="ScrollViewer">
+                    <Grid Background="{TemplateBinding Background}">
+                        <Grid.RowDefinitions><RowDefinition /><RowDefinition Height="Auto" /></Grid.RowDefinitions>
+                        <Grid.ColumnDefinitions><ColumnDefinition /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
+                        <ScrollContentPresenter x:Name="PART_ScrollContentPresenter" ClipToBounds="True" Margin="{TemplateBinding Padding}"
+                                                Content="{TemplateBinding Content}" ContentTemplate="{TemplateBinding ContentTemplate}"
+                                                CanContentScroll="{TemplateBinding CanContentScroll}" />
+                        <ScrollBar x:Name="PART_VerticalScrollBar" Grid.Column="1" Orientation="Vertical"
+                                   Maximum="{TemplateBinding ScrollableHeight}" ViewportSize="{TemplateBinding ViewportHeight}"
+                                   Value="{Binding VerticalOffset, RelativeSource={RelativeSource TemplatedParent}, Mode=OneWay}"
+                                   Visibility="{TemplateBinding ComputedVerticalScrollBarVisibility}" />
+                        <ScrollBar x:Name="PART_HorizontalScrollBar" Grid.Row="1" Orientation="Horizontal"
+                                   Maximum="{TemplateBinding ScrollableWidth}" ViewportSize="{TemplateBinding ViewportWidth}"
+                                   Value="{Binding HorizontalOffset, RelativeSource={RelativeSource TemplatedParent}, Mode=OneWay}"
+                                   Visibility="{TemplateBinding ComputedHorizontalScrollBarVisibility}" />
+                    </Grid>
+                </ControlTemplate>
+            </Setter.Value>
+        </Setter>
+    </Style>
+</ResourceDictionary>

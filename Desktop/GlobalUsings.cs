@@ -1,0 +1,15 @@
+global using System;
+global using System.Collections.Generic;
+global using System.IO;
+global using System.Linq;
+global using System.Windows;
+global using System.Windows.Controls;
+global using System.Windows.Input;
+global using System.Windows.Media;
+global using Levitation.Core;
+global using Button = System.Windows.Controls.Button;
+global using CheckBox = System.Windows.Controls.CheckBox;
+global using TextBox = System.Windows.Controls.TextBox;
+global using MessageBox = Levitation.Desktop.ThemedMessageBox;
+global using Orientation = System.Windows.Controls.Orientation;
+global using HorizontalAlignment = System.Windows.HorizontalAlignment;

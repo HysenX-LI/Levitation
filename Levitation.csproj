@@ -1,0 +1,45 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net8.0-windows</TargetFramework>
+    <UseWPF>true</UseWPF>
+    <UseWindowsForms>true</UseWindowsForms>
+    <EnableWindowsTargeting>true</EnableWindowsTargeting>
+    <EnableDefaultCompileItems>false</EnableDefaultCompileItems>
+    <EnableDefaultPageItems>false</EnableDefaultPageItems>
+    <EnableDefaultApplicationDefinition>false</EnableDefaultApplicationDefinition>
+    <Nullable>enable</Nullable>
+    <AssemblyName>Levitation</AssemblyName>
+    <RootNamespace>Levitation</RootNamespace>
+    <StartupObject>Levitation.Desktop.App</StartupObject>
+    <Version>0.1.0</Version>
+    <Authors>li5bo5; Levitation contributors</Authors>
+    <Copyright>WinKit © 2026 li5bo5. All Rights Reserved.</Copyright>
+    <Product>Levitation</Product>
+    <Description>桌面侧边待办与常用内容</Description>
+    <ApplicationIcon>PTD.ico</ApplicationIcon>
+    <ApplicationManifest>Desktop/app.manifest</ApplicationManifest>
+    <PublishSingleFile>true</PublishSingleFile>
+    <IncludeNativeLibrariesForSelfExtract>true</IncludeNativeLibrariesForSelfExtract>
+    <SelfContained>false</SelfContained>
+    <DebugType>embedded</DebugType>
+    <SatelliteResourceLanguages>zh-Hans</SatelliteResourceLanguages>
+  </PropertyGroup>
+  <ItemGroup>
+    <Compile Include="Desktop/**/*.cs" />
+    <Page Include="Desktop/ScrollStyles.xaml" />
+    <Page Include="Desktop/MenuStyles.xaml" />
+    <ProjectReference Include="Core/Levitation.Core.csproj" />
+    <EmbeddedResource Include="PTD.ico" LogicalName="Levitation.PTD.ico" />
+    <EmbeddedResource Include="LICENSE" LogicalName="Levitation.LICENSE" />
+  </ItemGroup>
+  <Target Name="CopyRuntimeNotices" AfterTargets="Publish" Condition="'$(SelfContained)' == 'true'">
+    <ItemGroup>
+      <RuntimeNotice Include="%(ResolvedRuntimePack.PackageDirectory)/LICENSE*;%(ResolvedRuntimePack.PackageDirectory)/THIRD-PARTY-NOTICES*"
+        Condition="'%(ResolvedRuntimePack.FrameworkName)' == 'Microsoft.NETCore.App' or '%(ResolvedRuntimePack.FrameworkName)' == 'Microsoft.WindowsDesktop.App'">
+        <FrameworkName>%(ResolvedRuntimePack.FrameworkName)</FrameworkName>
+      </RuntimeNotice>
+    </ItemGroup>
+    <Copy SourceFiles="@(RuntimeNotice)" DestinationFolder="$(PublishDir)Licenses/%(RuntimeNotice.FrameworkName)" />
+  </Target>
+</Project>
