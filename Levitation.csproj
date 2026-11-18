@@ -12,13 +12,11 @@
     <AssemblyName>Levitation</AssemblyName>
     <RootNamespace>Levitation</RootNamespace>
     <StartupObject>Levitation.Desktop.App</StartupObject>
-    <Version>0.1.0</Version>
     <Authors>li5bo5; Levitation contributors</Authors>
     <Copyright>WinKit © 2026 li5bo5. All Rights Reserved.</Copyright>
     <Product>Levitation</Product>
     <Description>桌面侧边待办与常用内容</Description>
     <ApplicationIcon>PTD.ico</ApplicationIcon>
-    <ApplicationManifest>Desktop/app.manifest</ApplicationManifest>
     <PublishSingleFile>true</PublishSingleFile>
     <IncludeNativeLibrariesForSelfExtract>true</IncludeNativeLibrariesForSelfExtract>
     <SelfContained>false</SelfContained>
@@ -33,6 +31,16 @@
     <EmbeddedResource Include="PTD.ico" LogicalName="Levitation.PTD.ico" />
     <EmbeddedResource Include="LICENSE" LogicalName="Levitation.LICENSE" />
   </ItemGroup>
+  <Target Name="GenerateVersionedApplicationManifest" BeforeTargets="PrepareForBuild">
+    <PropertyGroup>
+      <ApplicationManifest>$(IntermediateOutputPath)Levitation.manifest</ApplicationManifest>
+      <_ManifestTemplate>$([System.IO.File]::ReadAllText('$(MSBuildProjectDirectory)/Desktop/app.manifest'))</_ManifestTemplate>
+      <_ManifestText>$(_ManifestTemplate.Replace('0.0.0.0', '$(Version).0'))</_ManifestText>
+    </PropertyGroup>
+    <MakeDir Directories="$(IntermediateOutputPath)" />
+    <WriteLinesToFile File="$(ApplicationManifest)" Lines="$([MSBuild]::Escape('$(_ManifestText)'))" Overwrite="true" WriteOnlyWhenDifferent="true" />
+    <ItemGroup><FileWrites Include="$(ApplicationManifest)" /></ItemGroup>
+  </Target>
   <Target Name="CopyRuntimeNotices" AfterTargets="Publish" Condition="'$(SelfContained)' == 'true'">
     <ItemGroup>
       <RuntimeNotice Include="%(ResolvedRuntimePack.PackageDirectory)/LICENSE*;%(ResolvedRuntimePack.PackageDirectory)/THIRD-PARTY-NOTICES*"

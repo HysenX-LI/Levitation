@@ -11,22 +11,29 @@ jobs:
       - uses: actions/setup-dotnet@v4
         with:
           dotnet-version: 8.0.x
+      - name: Read and verify version
+        id: version
+        shell: pwsh
+        run: |
+          $version = (dotnet msbuild Levitation.csproj -getProperty:Version).Trim()
+          if ($LASTEXITCODE -ne 0 -or $version -notmatch '^\d+\.\d+\.\d+$') { throw 'Unable to read the app version.' }
+          if ($env:GITHUB_REF_TYPE -eq 'tag' -and $env:GITHUB_REF_NAME -cne "v$version") {
+            throw "Tag '$env:GITHUB_REF_NAME' does not match the app version v$version."
+          }
+          "name=Levitation-$version-win-x64" >> $env:GITHUB_OUTPUT
       - name: Check persistence and scheduling
         run: dotnet run --project Tests/Levitation.Core.Checks.csproj -c Release
       - name: Build and publish standalone Windows app
         run: dotnet publish Levitation.csproj -c Release -r win-x64 --self-contained true -o Publish/win-x64
       - name: Package
-        id: package
         shell: pwsh
+        env:
+          PACKAGE_NAME: ${{ steps.version.outputs.name }}
         run: |
-          $version = (dotnet msbuild Levitation.csproj -getProperty:Version).Trim()
-          if ($LASTEXITCODE -ne 0 -or $version -notmatch '^\d+\.\d+\.\d+$') { throw 'Unable to read the app version.' }
-          $name = "Levitation-$version-win-x64"
           Copy-Item README.md,LICENSE -Destination Publish/win-x64/
-          Compress-Archive -Path Publish/win-x64/* -DestinationPath "Publish/$name.zip"
-          "name=$name" >> $env:GITHUB_OUTPUT
+          Compress-Archive -Path Publish/win-x64/* -DestinationPath "Publish/$env:PACKAGE_NAME.zip"
       - uses: actions/upload-artifact@v4
         with:
-          name: ${{ steps.package.outputs.name }}
-          path: Publish/${{ steps.package.outputs.name }}.zip
+          name: ${{ steps.version.outputs.name }}
+          path: Publish/${{ steps.version.outputs.name }}.zip
           if-no-files-found: error

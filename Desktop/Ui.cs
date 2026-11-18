@@ -86,6 +86,7 @@ internal static class Ui
         window.Setters.Add(new Setter(Control.BackgroundProperty, new DynamicResourceExtension("Paper")));
         window.Setters.Add(new Setter(Control.ForegroundProperty, new DynamicResourceExtension("Ink")));
         resources[typeof(Window)] = window;
+        resources["TaskToolTipStyle"] = CreateTaskToolTipStyle();
 
         var button = new Style(typeof(Button));
         button.Setters.Add(new Setter(Control.BackgroundProperty, new DynamicResourceExtension("Soft")));
@@ -246,6 +247,53 @@ internal static class Ui
         selected.Setters.Add(new Setter(Control.BackgroundProperty, new DynamicResourceExtension("Soft")));
         selected.Setters.Add(new Setter(Control.ForegroundProperty, new DynamicResourceExtension("Ink"))); style.Triggers.Add(selected);
         resources[typeof(TabItem)] = style;
+    }
+
+    private static Style CreateTaskToolTipStyle()
+    {
+        var style = new Style(typeof(ToolTip));
+        var template = new ControlTemplate(typeof(ToolTip));
+        var surface = new FrameworkElementFactory(typeof(Border));
+        surface.SetValue(Border.PaddingProperty, new Thickness(12, 9, 12, 10));
+        surface.SetValue(Border.CornerRadiusProperty, new CornerRadius(8));
+        surface.SetValue(Border.BorderThicknessProperty, new Thickness(1));
+        surface.SetResourceReference(Border.BorderBrushProperty, "Line");
+        surface.SetResourceReference(Border.BackgroundProperty, "Paper");
+        surface.AppendChild(new FrameworkElementFactory(typeof(ContentPresenter)));
+        template.VisualTree = surface;
+        style.Setters.Add(new Setter(Control.TemplateProperty, template));
+        style.Setters.Add(new Setter(FrameworkElement.UseLayoutRoundingProperty, true));
+        return style;
+    }
+
+    public static ToolTip TaskToolTip(string title, string? description)
+    {
+        var heading = Text(title, 13);
+        heading.FontFamily = TaskFont;
+        heading.FontWeight = FontWeights.SemiBold;
+        heading.LineHeight = 19;
+        heading.MaxHeight = 7 * 19;
+        heading.TextWrapping = TextWrapping.Wrap;
+        heading.TextTrimming = TextTrimming.CharacterEllipsis;
+
+        var content = Stack(heading);
+        content.MaxWidth = 300;
+        if (!string.IsNullOrWhiteSpace(description))
+        {
+            var divider = new Border { Height = 1, Margin = new Thickness(0, 7, 0, 7) };
+            divider.SetResourceReference(Border.BackgroundProperty, "Line");
+            var body = Text(description.Trim(), 12, muted: true);
+            body.FontFamily = TaskFont;
+            body.LineHeight = 18;
+            body.MaxHeight = 10 * 18;
+            body.TextTrimming = TextTrimming.CharacterEllipsis;
+            content.Children.Add(divider);
+            content.Children.Add(body);
+        }
+
+        var tip = new ToolTip { Content = content };
+        tip.SetResourceReference(FrameworkElement.StyleProperty, "TaskToolTipStyle");
+        return tip;
     }
 
     public static TextBlock Text(string value, double size = 12, bool muted = false)

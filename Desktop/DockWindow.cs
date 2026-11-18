@@ -440,11 +440,8 @@ internal sealed class DockWindow : Window
         bool paused = isRoot && !completed && task.Activity == TaskActivity.Paused;
         bool canAdd = !root.CompletedAt.HasValue && !completed && depth < TaskTree.MaximumDepth;
         var row = new Grid { Tag = task.Id, Background = Brushes.Transparent, Margin = new Thickness(0, 1, 0, 1), MinHeight = 30 };
-        if (!string.IsNullOrWhiteSpace(task.Description))
-        {
-            var description = Ui.Text(task.Description.Trim()); description.MaxWidth = 320; description.MaxHeight = 240;
-            description.TextTrimming = TextTrimming.CharacterEllipsis; row.ToolTip = description; ToolTipService.SetShowDuration(row, 20000);
-        }
+        row.ToolTip = Ui.TaskToolTip(task.Title, task.Description);
+        ToolTipService.SetShowDuration(row, 20000);
         row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(4) });
         row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(24) }); row.ColumnDefinitions.Add(new ColumnDefinition()); row.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
         var highlight = new Border { CornerRadius = new CornerRadius(6), Background = Brushes.Transparent, IsHitTestVisible = false };
