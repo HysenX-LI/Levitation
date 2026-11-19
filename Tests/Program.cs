@@ -586,6 +586,7 @@ static void SectionVisibility()
 }
 static void ResetSize()
 {
+    Check(JsonSerializer.Deserialize<Preferences>("{}", DataStore.Json)!.DockTransition == DockTransition.Scale);
     using var dir = new TestDirectory();
     using (var store = new DataStore(dir.Path))
     {
@@ -594,6 +595,7 @@ static void ResetSize()
         preferences.Theme = "Dark"; preferences.AutoHideSeconds = 2; preferences.Width = 390;
         preferences.Height = 500; preferences.TasksHeight = 440; preferences.CardsHeight = 280;
         preferences.DockPosition = .8; preferences.CardsExpanded = false;
+        preferences.DockTransition = DockTransition.Slide;
         service.SavePreferences(preferences); service.ResetWindowSize();
         var expected = new Preferences(); var actual = store.State.Preferences;
         Check(actual.Width == expected.Width && actual.Height == null && actual.TasksHeight == expected.TasksHeight && actual.CardsHeight == expected.CardsHeight);
@@ -601,6 +603,7 @@ static void ResetSize()
     }
     using var reopened = new DataStore(dir.Path);
     Check(reopened.State.Preferences.Height == null && reopened.State.Preferences.TasksHeight == 320);
+    Check(reopened.State.Preferences.DockTransition == DockTransition.Slide);
     Check(reopened.State.Tasks.Single().Title == "恢复尺寸后保留" && reopened.State.Cards.Single().Content == "原文");
 }
 static void DockGeometry()

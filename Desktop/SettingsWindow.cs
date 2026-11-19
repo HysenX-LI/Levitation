@@ -17,7 +17,7 @@ internal sealed class SettingsWindow : Window
     private readonly TextBox _delay = Ui.Input("自动收起时间（秒）");
     private readonly CheckBox _autoStart = new(), _quickCapture = new();
     private readonly HotkeyEditor _quickShortcut = new();
-    private readonly ComboBox _theme = new(), _monitor = new();
+    private readonly ComboBox _theme = new(), _monitor = new(), _dockTransition = new();
     private readonly Button _clearTrash;
     private bool _updating;
 
@@ -69,6 +69,9 @@ internal sealed class SettingsWindow : Window
         }
         SettingsLayout.Field(_theme, 138);
         SettingsLayout.Field(_monitor, 138);
+        _dockTransition.Items.Add("缩放展开");
+        _dockTransition.Items.Add("从右侧滑出");
+        SettingsLayout.Field(_dockTransition, 138);
         SettingsLayout.Field(_delay, 67);
 
         var unit = Ui.Text("秒", 11, true);
@@ -80,6 +83,7 @@ internal sealed class SettingsWindow : Window
         var appearance = SettingsLayout.Section("显示与停靠",
             SettingsLayout.Row("主题", null, _theme),
             SettingsLayout.Row("停靠显示器", null, _monitor),
+            SettingsLayout.Row("展开方式", null, _dockTransition),
             SettingsLayout.Row("自动收起", "鼠标移开后等待 0.2～30 秒。默认 0.5 秒。", delayField),
             SettingsLayout.Row("窗口大小", "恢复浮窗和两张内容卡片的默认尺寸。",
                 SettingsLayout.Action("恢复默认", () =>
@@ -178,6 +182,7 @@ internal sealed class SettingsWindow : Window
         var preferences = new Preferences
         {
             AutoHideSeconds = seconds, Theme = _theme.SelectedIndex switch { 1 => "Light", 2 => "Dark", _ => "System" },
+            DockTransition = _dockTransition.SelectedIndex == 1 ? DockTransition.Slide : DockTransition.Scale,
             QuickCaptureEnabled = _quickCapture.IsChecked == true,
             QuickCaptureShortcut = _quickCapture.IsChecked == true ? _quickShortcut.Shortcut : _service.State.Preferences.QuickCaptureShortcut,
             MonitorName = (_monitor.SelectedItem as ComboBoxItem)?.Tag as string, Width = _service.State.Preferences.Width, Height = _service.State.Preferences.Height,
@@ -249,6 +254,7 @@ internal sealed class SettingsWindow : Window
     {
         _delay.Text = _service.State.Preferences.AutoHideSeconds.ToString(CultureInfo.CurrentCulture);
         _theme.SelectedIndex = _service.State.Preferences.Theme switch { "Light" => 1, "Dark" => 2, _ => 0 };
+        _dockTransition.SelectedIndex = _service.State.Preferences.DockTransition == DockTransition.Slide ? 1 : 0;
         _monitor.SelectedItem = _monitor.Items.OfType<ComboBoxItem>().FirstOrDefault(i => (string)i.Tag == _service.State.Preferences.MonitorName)
             ?? _monitor.Items.OfType<ComboBoxItem>().FirstOrDefault(i => (string)i.Tag == NativeWindow.Screen(null).DeviceName);
         _autoStart.IsChecked = AutoStart.Enabled;

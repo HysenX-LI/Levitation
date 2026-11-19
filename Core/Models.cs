@@ -111,9 +111,13 @@ public sealed class TrashItem : PersistentRecord
     [JsonIgnore] public string Kind => ParentTaskId.HasValue ? "子待办" : Task != null ? "待办" : "常用内容";
 }
 
+public enum DockTransition { Scale, Slide }
+
 public sealed class Preferences : PersistentRecord
 {
     public double AutoHideSeconds { get; set; } = .5;
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)]
+    public DockTransition DockTransition { get; set; }
     public string Theme { get; set; } = "System";
     public bool QuickCaptureEnabled { get; set; } = true;
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]

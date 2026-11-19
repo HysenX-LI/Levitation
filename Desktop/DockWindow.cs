@@ -135,10 +135,9 @@ internal sealed class DockWindow : Window
         root.Children.Add(CreateResizeGrip(horizontal: true, vertical: false));
         root.Children.Add(CreateResizeGrip(horizontal: true, vertical: true));
         _surface = Ui.Card(root, new Thickness(0)); _surface.CornerRadius = new CornerRadius(19); _surface.SetResourceReference(Border.BackgroundProperty, "Paper"); Content = new AdornerDecorator { Child = _surface };
-        _animation = new DockAnimation(this, _surface);
-
         _edge = new Window { Title = "Levitation 侧边入口", Width = 20, Height = 148, Opacity = .72, WindowStyle = WindowStyle.None, AllowsTransparency = true,
             Background = Brushes.Transparent, Topmost = true, ShowActivated = false, ShowInTaskbar = false, ResizeMode = ResizeMode.NoResize };
+        _animation = new DockAnimation(this, _edge, _surface);
         Ui.ThemeWindow(_edge);
         var edgeMark = new Border { Width = 3, Height = 48, CornerRadius = new CornerRadius(2), HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center, Opacity = .55 };
         edgeMark.SetResourceReference(Border.BackgroundProperty, "Muted");
@@ -215,27 +214,26 @@ internal sealed class DockWindow : Window
     }
     private void AnimateDock(bool expand)
     {
+        if (_animation.IsRunning && _animation.Expanding == expand) return;
+        if (_animation.IsRunning)
+        {
+            _animation.Reverse(expand, CompleteDockTransition);
+            return;
+        }
         var screen = NativeWindow.Screen(_service.State.Preferences.MonitorName);
         double scale = NativeWindow.Scale(screen);
-        double edgeTop = DockLayout.Calculate(NativeWindow.WorkHeight(screen), Height, _edge.Height, _dockPosition).EdgeTop;
+        double edgeTop = DockLayout.Calculate(screen.WorkingArea.Height / scale, Height, _edge.Height, _dockPosition).EdgeTop;
         var entry = new Rect(screen.WorkingArea.Width / scale - _edge.Width, edgeTop, _edge.Width, _edge.Height);
-        if (!_animation.IsRunning)
+        _animation.Play(expand, entry, screen, _service.State.Preferences.DockTransition, CompleteDockTransition);
+    }
+
+    private void CompleteDockTransition(bool expanded)
+    {
+        if (!expanded)
         {
-            _edge.Show(); NativeWindow.PlaceBounds(_edge, screen, entry);
+            if (!_docked) App.Try(() => _service.SaveWindowPlacement(true, _dockPosition, _floatingX, _floatingY));
         }
-        _edge.BeginAnimation(OpacityProperty, SystemParameters.ClientAreaAnimation
-            ? new DoubleAnimation(_edge.Opacity, expand ? 0 : .72, TimeSpan.FromMilliseconds(200)) : null);
-        _animation.Play(expand, entry, screen, expanded =>
-        {
-            SetEdgeOpacity(.72);
-            if (expanded) _edge.Hide();
-            else
-            {
-                if (!_docked) App.Try(() => _service.SaveWindowPlacement(true, _dockPosition, _floatingX, _floatingY));
-                _edge.Show();
-            }
-            _leftAt = null; Reposition();
-        });
+        _leftAt = null; Reposition();
     }
     private void SetEdgeOpacity(double opacity)
     {
