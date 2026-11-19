@@ -4,7 +4,7 @@ using System.Windows.Threading;
 
 namespace Levitation.Desktop;
 
-internal sealed class DockOverlayScrollViewer : ScrollViewer
+internal sealed class DockOverlayScrollViewer : DockScrollViewer
 {
     private readonly DispatcherTimer _idle = new() { Interval = TimeSpan.FromMilliseconds(1100) };
     private ScrollBar? _rail;
@@ -12,9 +12,6 @@ internal sealed class DockOverlayScrollViewer : ScrollViewer
 
     public DockOverlayScrollViewer()
     {
-        VerticalScrollBarVisibility = ScrollBarVisibility.Auto;
-        HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled;
-        CanContentScroll = false;
         SetResourceReference(TemplateProperty, "DockOverlayScrollViewer");
         _idle.Tick += (_, _) =>
         {

@@ -17,7 +17,7 @@ internal sealed class DockWindow : Window
     private readonly DispatcherTimer _hover = new() { Interval = TimeSpan.FromMilliseconds(180) };
     private readonly StackPanel _pending = new(), _completed = new(), _cards = new();
     private readonly TextBox _taskInput = Ui.Input("添加待办"), _cardInput = Ui.Input("添加常用内容");
-    private readonly ScrollViewer _pendingScroll, _completedScroll, _body;
+    private readonly DockScrollViewer _pendingScroll, _completedScroll, _body;
     private readonly TextBlock _pendingCount = Ui.Text(""), _completedCount = Ui.Text("", 11, true),
         _date = Ui.Text("", 13);
     private readonly Button _pin;
@@ -81,8 +81,8 @@ internal sealed class DockWindow : Window
         var routine = Ui.Action("日常任务  ›", OpenRoutines); routine.FontSize = 11; routine.Padding = new Thickness(9, 4, 9, 4);
         routine.ToolTip = "添加指定日期、每天或每周的任务";
         routine.MinHeight = 26; routine.Height = 26; routine.Margin = new Thickness(6, 0, 0, 0);
-        _pendingScroll = Ui.Scroll(_pending);
-        _completedScroll = Ui.Scroll(_completed);
+        _pendingScroll = new DockScrollViewer { Content = _pending };
+        _completedScroll = new DockScrollViewer { Content = _completed };
         _completedScroll.SizeChanged += (_, _) => UpdateListHeights();
         var group = new Grid(); group.RowDefinitions.Add(new RowDefinition()); group.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto }); group.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
         _pendingScroll.MinHeight = 96; group.Children.Add(_pendingScroll);
@@ -116,7 +116,8 @@ internal sealed class DockWindow : Window
         _cardInput.KeyDown += (_, e) => { if (e.Key == Key.Enter && !string.IsNullOrWhiteSpace(_cardInput.Text)) { App.Try(SaveNewCard); e.Handled = true; } };
         Ui.RoundInput(_cardInput);
         cardGroup.Children.Add(Composer(_cardInput, "保存", SaveNewCard));
-        var cardsScroll = Ui.Scroll(_cards); cardsScroll.MinHeight = 72; cardsScroll.Margin = new Thickness(0, 8, 0, 0); Grid.SetRow(cardsScroll, 1); cardGroup.Children.Add(cardsScroll);
+        var cardsScroll = new DockScrollViewer { Content = _cards, MinHeight = 72, Margin = new Thickness(0, 8, 0, 0) };
+        Grid.SetRow(cardsScroll, 1); cardGroup.Children.Add(cardsScroll);
         var cardSection = Ui.Section(cardHeading, cardGroup, null, "常用内容", service.State.Preferences.CardsExpanded,
             () => DockLayout.SectionHeight(false, _service.State.Preferences.CardsHeight), DockLayout.CardSectionMinimum,
             open => _service.SaveSectionExpanded(false, open), height => _service.SaveSectionHeight(false, height));

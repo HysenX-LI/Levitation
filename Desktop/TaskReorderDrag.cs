@@ -12,10 +12,10 @@ internal sealed record TaskTreeRow(Guid Id, int Depth, Grid Group, Grid Header, 
 // mouse-up; rebuilding it also restores the original UI on cancellation.
 internal sealed class TaskReorderDrag
 {
-    private readonly ScrollViewer _viewport;
+    private readonly DockScrollViewer _viewport;
     private readonly TaskTreeRow _source;
     private readonly TaskTreeRow[] _rows;
-    private readonly ScrollViewer[] _scrollAreas;
+    private readonly DockScrollViewer[] _scrollAreas;
     private readonly Func<TaskMove, bool> _canDrop;
     private readonly Action<TaskTreeRow> _expand;
     private readonly Action<TaskMove?> _finished;
@@ -33,7 +33,7 @@ internal sealed class TaskReorderDrag
     private DateTimeOffset _hoverSince;
     private bool _ending, _done;
 
-    public TaskReorderDrag(ScrollViewer viewport, TaskTreeRow source, TaskTreeRow[] rows, ScrollViewer[] scrollAreas, Point grab,
+    public TaskReorderDrag(DockScrollViewer viewport, TaskTreeRow source, TaskTreeRow[] rows, DockScrollViewer[] scrollAreas, Point grab,
         Func<TaskMove, bool> canDrop, Action<TaskTreeRow> expand, Action<TaskMove?> finished, TaskRowMotion motion, Func<Guid, TaskTreeRow?> locate)
     {
         _viewport = viewport; _source = source; _rows = rows; _scrollAreas = scrollAreas; _canDrop = canDrop; _expand = expand; _finished = finished; _motion = motion; _locate = locate;
@@ -68,11 +68,17 @@ internal sealed class TaskReorderDrag
     }
     private void Up(object sender, MouseButtonEventArgs e) { if (!_ending) { Update(true); End(true); } e.Handled = true; }
     private void LostCapture(object sender, MouseEventArgs e) { if (!_ending && !_viewport.IsMouseCaptured) End(false); }
-    private ScrollViewer ScrollArea(Point point) => _scrollAreas.FirstOrDefault(area => area.IsVisible && Bounds(area).Contains(point)) ?? _viewport;
+    private DockScrollViewer ScrollArea(Point point) => _scrollAreas.FirstOrDefault(area => area.IsVisible && Bounds(area).Contains(point)) ?? _viewport;
     private void Wheel(object sender, MouseWheelEventArgs e)
     {
-        if (_ending) return; var area = ScrollArea(Mouse.GetPosition(_viewport));
-        area.ScrollToVerticalOffset(area.VerticalOffset - e.Delta / 3d); _viewport.UpdateLayout(); Update(); e.Handled = true;
+        if (_ending) return;
+        var area = ScrollArea(e.GetPosition(_viewport));
+        if (area.TryScrollWheel(e.Delta) || (area != _viewport && _viewport.TryScrollWheel(e.Delta)))
+        {
+            _viewport.UpdateLayout();
+            Update();
+        }
+        e.Handled = true;
     }
     private void Scroll(object? sender, EventArgs e)
     {
