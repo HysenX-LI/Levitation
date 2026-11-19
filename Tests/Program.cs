@@ -19,6 +19,7 @@ var tests = new (string Name, Action Run)[]
     ("completion history survives task deletion", History),
     ("completion history keeps nested subtask dates and unknown older dates", SubtaskCompletionHistory),
     ("content names do not alter link targets", Links),
+    ("dropped text and links persist and expand common content", DroppedCards),
     ("incomplete valid JSON is not accepted as empty data", Incomplete),
     ("backup retention does not remove user exports", BackupRetention),
     ("missing primary recovers without reimporting legacy data", MissingPrimary),
@@ -124,6 +125,28 @@ static void PastedImageRollback()
     store.Export(backup);
     Throws<IOException>(() => targetService.RestoreBackup(backup));
     Check(restored.State.Cards.Count == 0 && !File.Exists(restored.PastedImagePath(id)));
+}
+
+static void DroppedCards()
+{
+    using var dir = new TestDirectory();
+    const string text = "中文摘录 😀\r\n第二行";
+    const string link = "https://example.com/guide?source=drag#details";
+    using (var store = new DataStore(dir.Path))
+    {
+        var service = new TaskService(store);
+        service.SaveSectionExpanded(false, false);
+        long revision = store.State.Revision;
+        service.SaveCard(null, "", "  ", expandSection: true);
+        Check(store.State.Revision == revision && !store.State.Preferences.CardsExpanded);
+        service.SaveCard(null, "", text, expandSection: true);
+        Check(store.State.Revision == revision + 1 && store.State.Preferences.CardsExpanded);
+        service.SaveCard(null, "", link, expandSection: true);
+    }
+    using var reopened = new DataStore(dir.Path);
+    Check(reopened.State.Cards[0].Link?.AbsoluteUri == link);
+    Check(reopened.State.Cards[1].Content == text && reopened.State.Cards[1].Link == null);
+    Check(reopened.State.Preferences.CardsExpanded);
 }
 
 static void FileReferences()

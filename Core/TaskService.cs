@@ -126,7 +126,7 @@ public sealed class TaskService(DataStore store, Func<DateTimeOffset>? clock = n
         SuppressOccurrences(s, task, true);
         s.Tasks.RemoveAt(index);
     });
-    public void SaveCard(Guid? id, string name, string content)
+    public void SaveCard(Guid? id, string name, string content, bool expandSection = false)
     {
         content = content.Trim(); if (content.Length == 0) return;
         Commit(s =>
@@ -135,7 +135,11 @@ public sealed class TaskService(DataStore store, Func<DateTimeOffset>? clock = n
             {
                 var card = s.Cards.Single(c => c.Id == id); card.Name = name.Trim(); card.Content = content;
             }
-            else s.Cards.Insert(0, new ContentCard { Name = name.Trim(), Content = content, CreatedAt = Now });
+            else
+            {
+                s.Cards.Insert(0, new ContentCard { Name = name.Trim(), Content = content, CreatedAt = Now });
+                if (expandSection) s.Preferences.CardsExpanded = true;
+            }
         });
     }
     public void DeleteCard(Guid id) => Commit(s =>

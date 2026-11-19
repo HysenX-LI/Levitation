@@ -36,7 +36,7 @@ internal sealed class DockWindow : Window
     private readonly Dictionary<Guid, (string Signature, Border Row)> _cardCache = new();
     private readonly TaskRowMotion _rowMotion;
     private readonly FileCardActions _fileActions;
-    private readonly FileDropController _fileDrop;
+    private readonly CardDropController _cardDrop;
     private readonly Dictionary<Guid, TaskTreeRow> _taskViews = new();
     private bool HasOpenChild => OwnedWindows.Cast<Window>().Any(window => window.IsVisible && window.WindowState != WindowState.Minimized);
     private SettingsWindow? _settings;
@@ -112,7 +112,7 @@ internal sealed class DockWindow : Window
 
         var cardGroup = new Grid(); cardGroup.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto }); cardGroup.RowDefinitions.Add(new RowDefinition());
         var cardHeading = Ui.Text("常用内容", 12); cardHeading.FontWeight = FontWeights.SemiBold;
-        _cardInput.ToolTip = "Ctrl+V 保存截图或粘贴文字，也可拖入文件和文件夹";
+        _cardInput.ToolTip = "Ctrl+V 粘贴截图或文字，也可拖入文字、网址和文件";
         _cardInput.KeyDown += (_, e) => { if (e.Key == Key.Enter && !string.IsNullOrWhiteSpace(_cardInput.Text)) { App.Try(SaveNewCard); e.Handled = true; } };
         Ui.RoundInput(_cardInput);
         cardGroup.Children.Add(Composer(_cardInput, "保存", SaveNewCard));
@@ -153,7 +153,9 @@ internal sealed class DockWindow : Window
         PreviewKeyDown += (_, _) => { if (Keyboard.FocusedElement is TextBox) { _lastTyping = DateTimeOffset.UtcNow; _leftAt = null; } };
         _edge.Closing += (_, e) => { if (!App.Current.Exiting) { e.Cancel = true; } };
         Closing += (_, e) => { if (!App.Current.Exiting) { e.Cancel = true; Collapse(); } };
-        _fileDrop = new FileDropController(this, _edge, _cardSurface, Expand, files => { _service.AddFileCards(files); cardsScroll.ScrollToTop(); });
+        _cardDrop = new CardDropController(this, _edge, _cardSurface, Expand,
+            files => { _service.AddFileCards(files); cardsScroll.ScrollToTop(); },
+            text => { _service.SaveCard(null, "", text, expandSection: true); cardsScroll.ScrollToTop(); });
         _service.Changed += Refresh;
         _poll.Tick += Poll;
         _body.SizeChanged += (_, _) => UpdateListHeights();
@@ -167,7 +169,7 @@ internal sealed class DockWindow : Window
         DockPanel.SetDock(button, Dock.Right); panel.Children.Add(button); panel.Children.Add(input); return panel;
     }
     public void StartDocked() { Reposition(); if (_docked) _edge.Show(); else Show(); Reposition(); _poll.Start(); }
-    public void Stop() { _stopped = true; _resizeGrip?.CancelDrag(); CancelTaskReorder(); _fileDrop.Dispose(); _rowMotion.Stop(); _poll.Stop(); _hover.Stop(); _animation.Cancel(false); EndDrag(false); _service.Changed -= Refresh; }
+    public void Stop() { _stopped = true; _resizeGrip?.CancelDrag(); CancelTaskReorder(); _cardDrop.Dispose(); _rowMotion.Stop(); _poll.Stop(); _hover.Stop(); _animation.Cancel(false); EndDrag(false); _service.Changed -= Refresh; }
     public void Reposition()
     {
         if (_animation.IsRunning || _resizing) return;
@@ -252,7 +254,7 @@ internal sealed class DockWindow : Window
         bool typing = IsActive && Keyboard.FocusedElement is TextBox && (DateTimeOffset.UtcNow - _lastTyping).TotalSeconds < .8;
         var screen = NativeWindow.Screen(_service.State.Preferences.MonitorName);
         if (!DockLayout.CanAutoHide(NativeWindow.PointerKeepsPanelOpen(this, screen, _docked) || NativeWindow.PointerInside(_edge), _pinned,
-            _dragHandle != null || _resizing || _reordering || IsMouseCaptureWithin || _fileDrop.IsActive, HasOpenChild, _menus.Count > 0 || Ui.HasOpenMenu, typing))
+            _dragHandle != null || _resizing || _reordering || IsMouseCaptureWithin || _cardDrop.IsActive, HasOpenChild, _menus.Count > 0 || Ui.HasOpenMenu, typing))
         { _leftAt = null; return; }
         _leftAt ??= DateTimeOffset.UtcNow;
         if ((DateTimeOffset.UtcNow - _leftAt.Value).TotalSeconds >= Math.Clamp(_service.State.Preferences.AutoHideSeconds, .2, 30)) Collapse(true);
