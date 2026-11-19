@@ -144,7 +144,12 @@ internal sealed class DockWindow : Window
         var edgeHandle = new Border { Child = edgeMark, CornerRadius = new CornerRadius(10, 0, 0, 10), BorderThickness = new Thickness(1, 1, 0, 1), ToolTip = "悬停展开，按住上下拖动" };
         edgeHandle.SetResourceReference(Border.BackgroundProperty, "Paper"); edgeHandle.SetResourceReference(Border.BorderBrushProperty, "Line");
         System.Windows.Automation.AutomationProperties.SetName(edgeHandle, "展开待办浮窗，拖动调整位置");
-        edgeHandle.MouseEnter += (_, _) => { if (_dragHandle == null) _hover.Start(); };
+        edgeHandle.MouseEnter += (_, _) =>
+        {
+            if (_dragHandle != null || Mouse.LeftButton == MouseButtonState.Pressed) return;
+            if (_animation.IsRunning && !_animation.Expanding) Expand();
+            else if (!_animation.IsRunning && !IsVisible) _hover.Start();
+        };
         edgeHandle.MouseLeave += (_, _) => _hover.Stop(); AttachDrag(edgeHandle, true); _edge.Content = edgeHandle;
         _hover.Tick += (_, _) => { _hover.Stop(); if (_dragHandle == null && Mouse.LeftButton != MouseButtonState.Pressed && NativeWindow.PointerInside(_edge)) Expand(); };
         PreviewKeyDown += CancelDrag; _edge.PreviewKeyDown += CancelDrag;
@@ -229,10 +234,7 @@ internal sealed class DockWindow : Window
 
     private void CompleteDockTransition(bool expanded)
     {
-        if (!expanded)
-        {
-            if (!_docked) App.Try(() => _service.SaveWindowPlacement(true, _dockPosition, _floatingX, _floatingY));
-        }
+        if (!expanded && !_docked) App.Try(() => _service.SaveWindowPlacement(true, _dockPosition, _floatingX, _floatingY));
         _leftAt = null; Reposition();
     }
     private void SetEdgeOpacity(double opacity)

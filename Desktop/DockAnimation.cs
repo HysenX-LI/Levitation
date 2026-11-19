@@ -8,6 +8,9 @@ namespace Levitation.Desktop;
 internal sealed class DockAnimation(Window window, Window edgeWindow, FrameworkElement surface)
 {
     private const double EdgeOpacity = .72;
+    private static readonly KeySpline OpenCurve = new(.18, .62, .38, 1);
+    private static readonly KeySpline CloseCurve = new(.28, .08, .44, 1);
+    private static readonly KeySpline FadeCurve = new(.33, 0, .67, 1);
     private readonly ScaleTransform _scale = new();
     private readonly TranslateTransform _offset = new();
     private readonly BitmapCache _bitmapCache = new();
@@ -44,7 +47,9 @@ internal sealed class DockAnimation(Window window, Window edgeWindow, FrameworkE
         _panel = new Rect(position.Left, position.Top, window.Width, window.Height);
         _entry = entry;
         _slide = transition == DockTransition.Slide;
-        _envelope = Rect.Union(_panel, _entry);
+        _envelope = _slide
+            ? new Rect(_panel.Left, _panel.Top, _entry.Right - _panel.Left, _panel.Height)
+            : Rect.Union(_panel, _entry);
         surface.Width = _panel.Width;
         surface.Height = _panel.Height;
         surface.HorizontalAlignment = HorizontalAlignment.Left;
@@ -56,9 +61,9 @@ internal sealed class DockAnimation(Window window, Window edgeWindow, FrameworkE
         _previousCache = surface.CacheMode;
         if (!_slide) surface.CacheMode = _bitmapCache;
         SetPanelPose(expand ? 0 : 1);
-        IsRunning = true;
         NativeWindow.PlaceBounds(window, screen, _envelope);
         PlaceEntry(screen, entry);
+        IsRunning = true;
         Begin(expand, expand ? 0 : 1, completed);
     }
 
@@ -106,8 +111,7 @@ internal sealed class DockAnimation(Window window, Window edgeWindow, FrameworkE
             return;
         }
 
-        var duration = TimeSpan.FromMilliseconds(Math.Clamp(220 * remaining, 35, 220));
-        var easing = new QuadraticEase { EasingMode = expand ? EasingMode.EaseOut : EasingMode.EaseIn };
+        var duration = TimeSpan.FromMilliseconds(Math.Max(45, (expand ? 220 : 250) * Math.Sqrt(remaining)));
         var timeline = new ParallelTimeline { Duration = duration };
         var targets = new List<(IAnimatable Target, DependencyProperty Property)>();
         void Add(IAnimatable target, DependencyProperty property, AnimationTimeline animation)
@@ -115,7 +119,8 @@ internal sealed class DockAnimation(Window window, Window edgeWindow, FrameworkE
             targets.Add((target, property));
             timeline.Children.Add(animation);
         }
-        DoubleAnimation Move(double from, double to) => new(from, to, duration) { EasingFunction = easing };
+        DoubleAnimationUsingKeyFrames Move(double from, double to) =>
+            AnimateSegment(from, to, duration, expand ? OpenCurve : CloseCurve);
 
         Add(_offset, TranslateTransform.XProperty, Move(_offset.X, expand ? OpenLeft : ClosedLeft));
         if (!_slide)
@@ -126,20 +131,11 @@ internal sealed class DockAnimation(Window window, Window edgeWindow, FrameworkE
             Add(surface, UIElement.OpacityProperty, Move(surface.Opacity, expand ? 1 : 0));
         }
 
-        // Reveal the real entry only during the last part of the return trip.
-        // On reversal, use its current opacity so neither HWND flashes.
-        var fade = new DoubleAnimationUsingKeyFrames { Duration = duration };
-        fade.KeyFrames.Add(new LinearDoubleKeyFrame(edgeWindow.Opacity, KeyTime.FromPercent(0)));
-        if (expand)
-            fade.KeyFrames.Add(new LinearDoubleKeyFrame(0, KeyTime.FromPercent(Math.Min(1, .40 / remaining))));
-        else
-        {
-            // The panel accelerates on exit, so convert the reveal position to eased time.
-            double revealAt = Math.Sqrt(Math.Max(0, 1 - .42 / remaining));
-            if (revealAt > 0)
-                fade.KeyFrames.Add(new LinearDoubleKeyFrame(edgeWindow.Opacity, KeyTime.FromPercent(revealAt)));
-            fade.KeyFrames.Add(new LinearDoubleKeyFrame(EdgeOpacity, KeyTime.FromPercent(1)));
-        }
+        // A full close leaves the final ~100 ms for the handoff. If the panel
+        // is already near the entry on reversal, fade from its present opacity.
+        double fadeEnd = expand ? Math.Min(1, .40 / Math.Sqrt(remaining)) : 1;
+        var fade = AnimateSegment(edgeWindow.Opacity, expand ? 0 : EdgeOpacity, duration, FadeCurve,
+            start: expand ? 0 : .60 * Math.Clamp((progress - .35) / .65, 0, 1), end: fadeEnd);
         Add(edgeWindow, UIElement.OpacityProperty, fade);
 
         var clock = (ClockGroup)timeline.CreateClock();
@@ -156,6 +152,16 @@ internal sealed class DockAnimation(Window window, Window edgeWindow, FrameworkE
         }
     }
 
+    private static DoubleAnimationUsingKeyFrames AnimateSegment(
+        double from, double to, TimeSpan duration, KeySpline curve, double start = 0, double end = 1)
+    {
+        var animation = new DoubleAnimationUsingKeyFrames { Duration = duration };
+        animation.KeyFrames.Add(new LinearDoubleKeyFrame(from, KeyTime.FromPercent(0)));
+        if (start > 0) animation.KeyFrames.Add(new LinearDoubleKeyFrame(from, KeyTime.FromPercent(start)));
+        animation.KeyFrames.Add(new SplineDoubleKeyFrame(to, KeyTime.FromPercent(end), curve));
+        return animation;
+    }
+
     public void Cancel(bool expanded)
     {
         if (!IsRunning) return;
@@ -165,6 +171,7 @@ internal sealed class DockAnimation(Window window, Window edgeWindow, FrameworkE
 
     private void Finish(bool expanded)
     {
+        IsRunning = false;
         SettleVisibility(expanded);
         if (!_slide)
         {
@@ -178,9 +185,9 @@ internal sealed class DockAnimation(Window window, Window edgeWindow, FrameworkE
         surface.Width = surface.Height = double.NaN;
         surface.HorizontalAlignment = HorizontalAlignment.Stretch;
         surface.VerticalAlignment = VerticalAlignment.Stretch;
-        IsRunning = false;
-        if (_screen != null && PresentationSource.FromVisual(window) != null)
-            NativeWindow.PlaceBounds(window, _screen, _panel);
+        // The completion handler places the normal window once, after the
+        // animated surface and visibility have settled.
+        _screen = null;
     }
 
     private void SettleVisibility(bool expanded)
