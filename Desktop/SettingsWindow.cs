@@ -16,6 +16,7 @@ internal sealed class SettingsWindow : Window
     private readonly TextBlock _historyCount = Ui.Text("", 12, true);
     private readonly TextBox _delay = Ui.Input("自动收起时间（秒）");
     private readonly CheckBox _autoStart = new(), _quickCapture = new();
+    private readonly HotkeyEditor _quickShortcut = new();
     private readonly ComboBox _theme = new(), _monitor = new();
     private readonly Button _clearTrash;
     private bool _updating;
@@ -88,7 +89,9 @@ internal sealed class SettingsWindow : Window
                 })));
         var startup = SettingsLayout.Section("启动与快捷键",
             SettingsLayout.Row("开机启动", "登录 Windows 时启动 Levitation。", _autoStart),
-            SettingsLayout.Row("快速记录待办", "使用 Win+W，会暂时占用 Windows 小组件快捷键。", _quickCapture));
+            SettingsLayout.Row("快速记录待办", null, _quickCapture),
+            _quickShortcut);
+        _quickShortcut.SetBinding(IsEnabledProperty, new System.Windows.Data.Binding(nameof(CheckBox.IsChecked)) { Source = _quickCapture });
 
         var save = SettingsLayout.Action("保存设置", SaveGeneral, primary: true);
         return SettingsLayout.Page("浮窗行为", null, Ui.Scroll(Ui.Stack(appearance, startup)), save);
@@ -169,12 +172,14 @@ internal sealed class SettingsWindow : Window
 
     private void SaveGeneral()
     {
+        _quickShortcut.CancelRecording();
         if (!double.TryParse(_delay.Text, NumberStyles.Float, CultureInfo.CurrentCulture, out var seconds) || !double.IsFinite(seconds) || seconds < .2 || seconds > 30)
             throw new ArgumentException("自动收起时间请输入 0.2～30 秒。");
         var preferences = new Preferences
         {
             AutoHideSeconds = seconds, Theme = _theme.SelectedIndex switch { 1 => "Light", 2 => "Dark", _ => "System" },
             QuickCaptureEnabled = _quickCapture.IsChecked == true,
+            QuickCaptureShortcut = _quickCapture.IsChecked == true ? _quickShortcut.Shortcut : _service.State.Preferences.QuickCaptureShortcut,
             MonitorName = (_monitor.SelectedItem as ComboBoxItem)?.Tag as string, Width = _service.State.Preferences.Width, Height = _service.State.Preferences.Height,
             TasksExpanded = _service.State.Preferences.TasksExpanded, CardsExpanded = _service.State.Preferences.CardsExpanded,
             TasksHeight = _service.State.Preferences.TasksHeight, CardsHeight = _service.State.Preferences.CardsHeight,
@@ -182,7 +187,13 @@ internal sealed class SettingsWindow : Window
             IsDocked = _service.State.Preferences.IsDocked, FloatingX = _service.State.Preferences.FloatingX, FloatingY = _service.State.Preferences.FloatingY,
             Extra = _service.State.Preferences.Extra
         };
-        _service.SavePreferences(preferences);
+        var error = App.Current.SaveGeneralPreferences(preferences);
+        if (error != null)
+        {
+            _quickShortcut.ShowError(error + "原设置已保留。");
+            return;
+        }
+        _quickShortcut.LoadShortcut(preferences.QuickCaptureShortcut);
         AutoStart.Set(_autoStart.IsChecked == true);
         Ui.ApplyTheme(preferences.Theme);
         _repositionDock();
@@ -242,6 +253,7 @@ internal sealed class SettingsWindow : Window
             ?? _monitor.Items.OfType<ComboBoxItem>().FirstOrDefault(i => (string)i.Tag == NativeWindow.Screen(null).DeviceName);
         _autoStart.IsChecked = AutoStart.Enabled;
         _quickCapture.IsChecked = _service.State.Preferences.QuickCaptureEnabled;
+        _quickShortcut.LoadShortcut(_service.State.Preferences.QuickCaptureShortcut);
     }
 
     public void RefreshData()

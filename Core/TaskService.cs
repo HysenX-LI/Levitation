@@ -7,9 +7,13 @@ public sealed class TaskService(DataStore store, Func<DateTimeOffset>? clock = n
     public AppState State => store.State;
     public event Action? Changed;
 
-    private void Commit(Action<AppState> change)
+    private void Commit(Action<AppState> change, Action? afterSave = null)
     {
-        var next = store.Snapshot(); change(next); store.Save(next); Changed?.Invoke();
+        var next = store.Snapshot();
+        change(next);
+        store.Save(next);
+        afterSave?.Invoke();
+        Changed?.Invoke();
     }
 
     public IEnumerable<TaskItem> Pending => State.Tasks.Where(t => t.CompletedAt == null &&
@@ -268,7 +272,8 @@ public sealed class TaskService(DataStore store, Func<DateTimeOffset>? clock = n
         return due.Count;
     }
     private static Guid OccurrenceId(string key) => new(System.Security.Cryptography.SHA256.HashData(System.Text.Encoding.UTF8.GetBytes(key)).AsSpan(0, 16));
-    public void SavePreferences(Preferences preferences) => Commit(s => s.Preferences = preferences);
+    public void SavePreferences(Preferences preferences, Action? afterSave = null) =>
+        Commit(s => s.Preferences = preferences, afterSave);
     public void SaveSectionExpanded(bool tasks, bool expanded)
     {
         if ((tasks ? State.Preferences.TasksExpanded : State.Preferences.CardsExpanded) == expanded) return;

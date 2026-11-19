@@ -506,16 +506,33 @@ static void TaskDescriptions()
 }
 static void QuickCapturePreference()
 {
-    Check(JsonSerializer.Deserialize<Preferences>("{}", DataStore.Json)!.QuickCaptureEnabled, "old preferences did not receive the default shortcut");
+    var existing = JsonSerializer.Deserialize<Preferences>("{}", DataStore.Json)!;
+    Check(existing is { QuickCaptureEnabled: true, QuickCaptureShortcut: null } &&
+        QuickCaptureShortcut.Default == new QuickCaptureShortcut(ShortcutModifiers.Windows, 0x57),
+        "old preferences did not receive the default shortcut");
+    var shortcut = new QuickCaptureShortcut(ShortcutModifiers.Control | ShortcutModifiers.Alt, 0x20);
+    Check(shortcut.IsValid && !(shortcut with { Modifiers = 0 }).IsValid &&
+        !(shortcut with { VirtualKey = 0xA0 }).IsValid && !(shortcut with { Modifiers = (ShortcutModifiers)16 }).IsValid);
     using var dir = new TestDirectory();
     using (var store = new DataStore(dir.Path))
     {
         var service = new TaskService(store); var preferences = store.Snapshot().Preferences;
-        preferences.QuickCaptureEnabled = false; service.SavePreferences(preferences);
+        preferences.QuickCaptureEnabled = false;
+        preferences.QuickCaptureShortcut = shortcut;
+        bool activated = false;
+        void Observe() => Check(activated && service.State.Preferences.QuickCaptureShortcut == shortcut);
+        service.Changed += Observe;
+        service.SavePreferences(preferences, () =>
+        {
+            Check(DataStore.ReadFile(store.FilePath).Preferences.QuickCaptureShortcut == shortcut);
+            activated = true;
+        });
+        service.Changed -= Observe;
         service.AddTask("快速记录：中文 Agypj"); service.SaveSectionExpanded(true, false); service.ResetWindowSize();
     }
     using var reopened = new DataStore(dir.Path);
     Check(!reopened.State.Preferences.QuickCaptureEnabled);
+    Check(reopened.State.Preferences.QuickCaptureShortcut == shortcut);
     Check(reopened.State.Tasks.Single().Title == "快速记录：中文 Agypj");
 }
 static void TaskOrder()

@@ -116,6 +116,8 @@ public sealed class Preferences : PersistentRecord
     public double AutoHideSeconds { get; set; } = .5;
     public string Theme { get; set; } = "System";
     public bool QuickCaptureEnabled { get; set; } = true;
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public QuickCaptureShortcut? QuickCaptureShortcut { get; set; }
     public string? MonitorName { get; set; }
     public double Width { get; set; } = 340;
     public double? Height { get; set; }

@@ -15,9 +15,10 @@ public sealed class App : System.Windows.Application
     private DockWindow? _dock;
     private QuickCaptureHotkey? _quickHotkey;
     private QuickCaptureWindow? _quickCapture;
-    private bool? _quickRequested;
+    private (bool Enabled, QuickCaptureShortcut? Shortcut)? _quickRequested;
     internal bool Exiting { get; private set; }
     public static new App Current => (App)System.Windows.Application.Current;
+    internal QuickCaptureHotkey QuickHotkey => _quickHotkey ?? throw new InvalidOperationException("快速记录尚未初始化。");
 
     [STAThread]
     public static void Main()
@@ -80,12 +81,27 @@ public sealed class App : System.Windows.Application
     private void SyncQuickCapture()
     {
         if (_service == null || _quickHotkey == null) return;
-        bool enabled = _service.State.Preferences.QuickCaptureEnabled;
-        if (_quickRequested == enabled) return;
-        _quickRequested = enabled;
-        try { _quickHotkey.SetEnabled(enabled); }
-        catch (Exception ex) { _tray?.ShowBalloonTip(6000, "快速记录快捷键未启用", ex.Message, Forms.ToolTipIcon.Warning); }
+        var preferences = _service.State.Preferences;
+        var requested = (preferences.QuickCaptureEnabled, preferences.QuickCaptureShortcut);
+        if (_quickRequested == requested) return;
+        _quickRequested = requested;
+        var error = ApplyQuickCapture(preferences);
+        if (error != null) _tray?.ShowBalloonTip(6000, "快速记录快捷键未更新", error, Forms.ToolTipIcon.Warning);
     }
+
+    private string? ApplyQuickCapture(Preferences preferences, Action<Action>? save = null)
+    {
+        var custom = preferences.QuickCaptureShortcut;
+        return QuickHotkey.Apply(preferences.QuickCaptureEnabled ? custom ?? QuickCaptureShortcut.Default : null,
+            allowWidgetsFallback: custom == null, save);
+    }
+
+    internal string? SaveGeneralPreferences(Preferences preferences) =>
+        ApplyQuickCapture(preferences, activate => _service!.SavePreferences(preferences, () =>
+        {
+            activate();
+            _quickRequested = (preferences.QuickCaptureEnabled, preferences.QuickCaptureShortcut);
+        }));
     private void PreferenceChanged(object sender, UserPreferenceChangedEventArgs e) => Dispatcher.BeginInvoke(() =>
     { if (_service != null) Ui.ApplyTheme(_service.State.Preferences.Theme); });
     public void ExitApp() { Exiting = true; Shutdown(); }
