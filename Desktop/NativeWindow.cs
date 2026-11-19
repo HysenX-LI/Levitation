@@ -9,6 +9,19 @@ internal static class NativeWindow
 {
     [StructLayout(LayoutKind.Sequential)] private struct Point { public int X, Y; }
     [StructLayout(LayoutKind.Sequential)] private struct Rect { public int Left, Top, Right, Bottom; }
+    [StructLayout(LayoutKind.Sequential)]
+    private struct MouseInput
+    {
+        public int X, Y;
+        public uint Data, Flags, Time;
+        public UIntPtr ExtraInfo;
+    }
+    [StructLayout(LayoutKind.Sequential)]
+    private struct Input
+    {
+        public uint Type;
+        public MouseInput Mouse;
+    }
     [DllImport("user32.dll")] private static extern bool GetCursorPos(out Point point);
     [DllImport("user32.dll")] private static extern bool GetWindowRect(IntPtr hwnd, out Rect rectangle);
     [DllImport("user32.dll")] private static extern bool SetWindowPos(IntPtr hwnd, IntPtr after, int x, int y, int width, int height, uint flags);
@@ -17,14 +30,24 @@ internal static class NativeWindow
     [DllImport("dwmapi.dll")] private static extern int DwmSetWindowAttribute(IntPtr hwnd, int attribute, ref int value, int size);
     [DllImport("user32.dll")] private static extern IntPtr GetForegroundWindow();
     [DllImport("user32.dll")] private static extern bool SetForegroundWindow(IntPtr handle);
+    [DllImport("user32.dll")] private static extern uint SendInput(uint count, in Input input, int size);
     [DllImport("user32.dll")] private static extern bool IsWindow(IntPtr handle);
     [DllImport("user32.dll")] private static extern uint GetWindowThreadProcessId(IntPtr handle, out uint processId);
     [DllImport("user32.dll", CharSet = CharSet.Unicode)] private static extern int GetClassName(IntPtr handle, StringBuilder name, int maximum);
     private static IntPtr _contentWindow;
     public static IntPtr ForegroundHandle => GetForegroundWindow();
-    public static Forms.Screen ForegroundScreen() => GetForegroundWindow() is var handle && handle != IntPtr.Zero
+    public static Forms.Screen ForegroundScreen(IntPtr handle) => handle != IntPtr.Zero
         ? Forms.Screen.FromHandle(handle) : Forms.Screen.FromPoint(Forms.Cursor.Position);
-    public static void FocusWindow(Window window) { SetForegroundWindow(new WindowInteropHelper(window).EnsureHandle()); window.Activate(); }
+    public static void ActivateFromShortcut(Window window)
+    {
+        if (window.Activate()) return;
+
+        // A low-level hook can receive the shortcut while foreground permission stays with another process.
+        // PowerToys Run uses an empty INPUT_MOUSE event to retry activation without moving or clicking.
+        const uint inputMouse = 0;
+        var input = new Input { Type = inputMouse };
+        if (SendInput(1, in input, Marshal.SizeOf<Input>()) == 1) window.Activate();
+    }
     public static void RestoreForeground(IntPtr handle) { if (handle != IntPtr.Zero && IsWindow(handle)) SetForegroundWindow(handle); }
 
     // Remember the working application before our floating window or the taskbar

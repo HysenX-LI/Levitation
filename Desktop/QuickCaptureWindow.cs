@@ -14,7 +14,7 @@ internal sealed class QuickCaptureWindow : Window
     {
         _service = service; Ui.ThemeWindow(this);
         Title = "Levitation · 快速记录"; WindowStyle = WindowStyle.None; AllowsTransparency = true; Background = Brushes.Transparent;
-        ResizeMode = ResizeMode.NoResize; ShowInTaskbar = false; Topmost = true; Width = 560; Height = 72;
+        ResizeMode = ResizeMode.NoResize; ShowActivated = false; ShowInTaskbar = false; Topmost = true; Width = 560; Height = 72;
         _input.Height = _input.MinHeight = 48; _input.FontSize = 20; _input.FontFamily = Ui.TaskFont; _input.Padding = new Thickness(2, 0, 2, 0);
         _input.BorderThickness = new Thickness(0); _input.Background = Brushes.Transparent;
         _input.Template = Ui.InputTemplate(decorate: false);
@@ -43,6 +43,7 @@ internal sealed class QuickCaptureWindow : Window
             if (e.Key == Key.Escape) { Dismiss(true); e.Handled = true; }
             else if (e.Key == Key.Enter && !_composing && Keyboard.Modifiers == ModifierKeys.None) { Save(); e.Handled = true; }
         };
+        Activated += (_, _) => Dispatcher.BeginInvoke(DispatcherPriority.Input, new Action(FocusInput));
         Deactivated += (_, _) => { if (IsVisible && !Ui.HasOpenMenu) Dismiss(false); };
         Closing += (_, e) => { if (!App.Current.Exiting) { e.Cancel = true; Dismiss(false); } };
     }
@@ -50,13 +51,18 @@ internal sealed class QuickCaptureWindow : Window
     {
         if (IsVisible) { Dismiss(true); return; }
         _previous = NativeWindow.ForegroundHandle;
-        var screen = NativeWindow.ForegroundScreen(); double scale = NativeWindow.Scale(screen);
+        var screen = NativeWindow.ForegroundScreen(_previous); double scale = NativeWindow.Scale(screen);
         Width = Math.Min(560, Math.Max(240, screen.WorkingArea.Width / scale - 48)); Height = 72;
         UpdatePlaceholder();
         Opacity = 0; Show();
         NativeWindow.PlaceBounds(this, screen, new Rect((screen.WorkingArea.Width / scale - Width) / 2, (screen.WorkingArea.Height / scale - Height) / 2, Width, Height));
-        Opacity = 1; NativeWindow.FocusWindow(this);
-        Dispatcher.BeginInvoke(DispatcherPriority.Input, new Action(() => { if (IsVisible) { _input.Focus(); Keyboard.Focus(_input); _input.CaretIndex = _input.Text.Length; } }));
+        Opacity = 1; NativeWindow.ActivateFromShortcut(this);
+    }
+    private void FocusInput()
+    {
+        if (!IsVisible || !IsActive) return;
+        Keyboard.Focus(_input);
+        _input.CaretIndex = _input.Text.Length;
     }
     private void Save()
     {
@@ -66,7 +72,8 @@ internal sealed class QuickCaptureWindow : Window
     private void UpdatePlaceholder() => _placeholder.Visibility = _input.Text.Length == 0 && !_composing ? Visibility.Visible : Visibility.Collapsed;
     private void Dismiss(bool restoreFocus)
     {
+        bool wasActive = IsActive;
         Hide(); _composing = false; UpdatePlaceholder();
-        if (restoreFocus) NativeWindow.RestoreForeground(_previous);
+        if (restoreFocus && wasActive) NativeWindow.RestoreForeground(_previous);
     }
 }
