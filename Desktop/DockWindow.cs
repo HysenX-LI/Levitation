@@ -141,7 +141,7 @@ internal sealed class DockWindow : Window
         Ui.ThemeWindow(_edge);
         var edgeMark = new Border { Width = 3, Height = 48, CornerRadius = new CornerRadius(2), HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center, Opacity = .55 };
         edgeMark.SetResourceReference(Border.BackgroundProperty, "Muted");
-        var edgeHandle = new Border { Child = edgeMark, CornerRadius = new CornerRadius(10, 0, 0, 10), BorderThickness = new Thickness(1, 1, 0, 1), Cursor = Cursors.SizeNS, ToolTip = "悬停展开，按住上下拖动" };
+        var edgeHandle = new Border { Child = edgeMark, CornerRadius = new CornerRadius(10, 0, 0, 10), BorderThickness = new Thickness(1, 1, 0, 1), ToolTip = "悬停展开，按住上下拖动" };
         edgeHandle.SetResourceReference(Border.BackgroundProperty, "Paper"); edgeHandle.SetResourceReference(Border.BorderBrushProperty, "Line");
         System.Windows.Automation.AutomationProperties.SetName(edgeHandle, "展开待办浮窗，拖动调整位置");
         edgeHandle.MouseEnter += (_, _) => { if (_dragHandle == null) _hover.Start(); };
