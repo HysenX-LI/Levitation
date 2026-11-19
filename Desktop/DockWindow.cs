@@ -127,7 +127,8 @@ internal sealed class DockWindow : Window
             _service.AddPastedImage(image);
             cardsScroll.ScrollToTop();
         });
-        _body = Ui.Scroll(body); _body.Margin = new Thickness(0, 0, 0, 6); Grid.SetRow(_body, 1); root.Children.Add(_body);
+        _body = new DockOverlayScrollViewer { Content = body, Margin = new Thickness(0, 0, 0, 6) };
+        Grid.SetRow(_body, 1); root.Children.Add(_body);
         _rowMotion = new TaskRowMotion(_body);
         root.Children.Add(CreateResizeGrip(horizontal: false, vertical: true));
         root.Children.Add(CreateResizeGrip(horizontal: true, vertical: false));

@@ -56,7 +56,7 @@ Levitation 是一个贴在屏幕边缘的 Windows 待办悬浮窗。工作时把
 
 已移除自动剪贴板监听、剪贴板图片缓存、中文 `vv` 短语触发、旧版通用键盘监听及鼠标穿透。底部没有浏览器式保存状态栏。
 
-全局滚动条采用无边框透明轨道和圆润细滑块，悬停时略微加粗，覆盖主窗、设置、编辑框与下拉列表。深色主题使用深灰滑块，切换主题时实时更新。参考 [WPF UI ScrollBar](https://github.com/lepoco/wpfui/blob/main/src/Wpf.Ui/Controls/ScrollBar/ScrollBar.xaml) 的圆角滑块与透明轨道思路，使用项目自身 WPF 模板实现，无新增外部控件依赖。
+主浮窗最外层的滚动条浮在右侧留白内，不占内容宽度。滚动或指向右侧时显示细滑块，拖动时稍加粗，停止操作后淡出。待办列表、常用内容、设置、编辑框和下拉列表使用无边框透明轨道和圆润细滑块。深色主题使用深灰滑块，切换主题时实时更新。参考 [WPF UI ScrollBar](https://github.com/lepoco/wpfui/blob/main/src/Wpf.Ui/Controls/ScrollBar/ScrollBar.xaml) 的圆角滑块与透明轨道思路，使用项目自身 WPF 模板实现，无新增外部控件依赖。
 
 ## 配色
 
