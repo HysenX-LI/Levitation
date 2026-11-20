@@ -1,3 +1,5 @@
+using System.Windows.Threading;
+
 namespace Levitation.Desktop;
 
 internal sealed class SubtaskPanel : StackPanel
@@ -5,7 +7,7 @@ internal sealed class SubtaskPanel : StackPanel
     public TextBox? Input { get; }
 
     public SubtaskPanel(Window owner, TaskItem parent, string draft,
-        Action<string> draftChanged, Action save, Action closeComposer)
+        Action<string> draftChanged, Action save, Action<SubtaskPanel> closeComposer)
     {
         Input = Ui.Input("为“" + parent.Title + "”添加子待办", draft); Input.Height = Input.MinHeight = 28;
         Input.FontSize = 11.5; Input.Padding = new Thickness(8, 2, 8, 2); Input.BorderThickness = new Thickness(0); Input.Background = Brushes.Transparent;
@@ -21,11 +23,45 @@ internal sealed class SubtaskPanel : StackPanel
         Input.PreviewKeyDown += (_, e) =>
         {
             if (e.Key == Key.Enter && !composing && Keyboard.Modifiers == ModifierKeys.None) { App.Try(save); e.Handled = true; }
-            else if (e.Key == Key.Escape && !composing) { closeComposer(); e.Handled = true; }
+            else if (e.Key == Key.Escape && !composing) { closeComposer(this); e.Handled = true; }
         };
         var line = new DockPanel(); var enter = TaskControls.Button(TaskControls.Glyph(TaskControls.Enter, 13), "保存子待办", parent.Title, save); enter.Height = 26;
         DockPanel.SetDock(enter, Dock.Right); line.Children.Add(enter); line.Children.Add(field);
         var surface = new Border { Child = line, BorderThickness = new Thickness(1), CornerRadius = new CornerRadius(7), Margin = new Thickness(4, 4, 0, 2) };
         surface.SetResourceReference(Border.BorderBrushProperty, "Line"); surface.SetResourceReference(Border.BackgroundProperty, "Paper"); Children.Add(surface);
+
+        // Let the clicked control finish its action before collapsing this row.
+        void CloseLater(bool outsideClick)
+        {
+            Dispatcher.BeginInvoke(DispatcherPriority.Background, new Action(() =>
+            {
+                if (IsLoaded && IsVisible && (outsideClick || !IsKeyboardFocusWithin) && Input.ContextMenu?.IsOpen != true)
+                    closeComposer(this);
+            }));
+        }
+
+        void MouseReleased(object sender, MouseButtonEventArgs e)
+        {
+            if (!IsMouseOver) CloseLater(outsideClick: true);
+        }
+
+        void OwnerDeactivated(object? sender, EventArgs e) => CloseLater(outsideClick: true);
+
+        var mouseReleased = new MouseButtonEventHandler(MouseReleased);
+        Loaded += (_, _) =>
+        {
+            owner.AddHandler(Mouse.PreviewMouseUpEvent, mouseReleased, handledEventsToo: true);
+            owner.Deactivated += OwnerDeactivated;
+        };
+        Unloaded += (_, _) =>
+        {
+            owner.RemoveHandler(Mouse.PreviewMouseUpEvent, mouseReleased);
+            owner.Deactivated -= OwnerDeactivated;
+        };
+        IsKeyboardFocusWithinChanged += (_, _) =>
+        {
+            if (!IsKeyboardFocusWithin && Mouse.LeftButton != MouseButtonState.Pressed && Mouse.RightButton != MouseButtonState.Pressed)
+                CloseLater(outsideClick: false);
+        };
     }
 }

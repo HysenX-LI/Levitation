@@ -593,7 +593,12 @@ internal sealed class DockWindow : Window
             if (!composing && composer != null) { contents.Children.Remove(composer); composer = null; _subtaskInputs.Remove(task.Id); }
             if (composing && composer == null)
             {
-                composer = new SubtaskPanel(this, task, _subtaskDrafts.GetValueOrDefault(task.Id, ""), value => _subtaskDrafts[task.Id] = value, () => SaveSubtask(task.Id), () => CloseSubtaskComposer(task.Id));
+                composer = new SubtaskPanel(this, task, _subtaskDrafts.GetValueOrDefault(task.Id, ""), value => _subtaskDrafts[task.Id] = value,
+                    () => SaveSubtask(task.Id), panel =>
+                    {
+                        if (ReferenceEquals(composer, panel) && ReferenceEquals(_subtaskInputs.GetValueOrDefault(task.Id), panel.Input))
+                            CloseSubtaskComposer(task.Id);
+                    });
                 contents.Children.Add(composer); if (composer.Input != null) _subtaskInputs[task.Id] = composer.Input;
             }
             if (composer?.Input != null) _subtaskInputs[task.Id] = composer.Input;
@@ -632,7 +637,7 @@ internal sealed class DockWindow : Window
     }
     private void CloseSubtaskComposer(Guid id)
     {
-        _subtaskComposers.Remove(id);
+        if (!_subtaskComposers.Remove(id)) return;
         if (TaskTree.Find(_service.State.Tasks, id)?.Item.Subtasks.Count == 0) _expandedTasks.Remove(id);
         if (_taskExpanders.TryGetValue(id, out var update)) update(true);
     }
