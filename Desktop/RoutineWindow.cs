@@ -1,95 +1,297 @@
+using System.Windows.Automation;
 using System.Windows.Controls.Primitives;
+using System.Windows.Documents;
 
 namespace Levitation.Desktop;
 
 internal sealed class RoutineWindow : Window
 {
+    private static readonly DayOfWeek[] Weekdays =
+    [
+        DayOfWeek.Monday, DayOfWeek.Tuesday, DayOfWeek.Wednesday,
+        DayOfWeek.Thursday, DayOfWeek.Friday, DayOfWeek.Saturday, DayOfWeek.Sunday
+    ];
+
     private readonly TaskService _service;
-    private readonly TextBox _title = Ui.Input("日常任务内容");
-    private readonly ComboBox _frequency = new();
+    private readonly TextBox _title = Ui.Input("任务内容");
     private readonly DateSelector _date = new();
-    private readonly StackPanel _dateField;
-    private readonly UniformGrid _fields = new() { Columns = 2, Margin = new Thickness(0, 14, 0, 12) };
-    private readonly StackPanel _weekdays = new() { Margin = new Thickness(0, 14, 0, 0) };
-    private readonly Dictionary<DayOfWeek, CheckBox> _days = new();
+    private readonly StackPanel _dateField, _weekdaysField;
+    private readonly Dictionary<DayOfWeek, CheckBox> _dayButtons = new();
+    private readonly RadioButton _once;
+    private readonly UniformGrid _frequencyChoices;
+    private readonly TextBlock _editorHeading = Heading("新增安排"), _error = Ui.Text("", 12);
+    private readonly TextBlock _count = Ui.Text("", 12, true);
     private readonly StackPanel _list = new();
     private readonly Button _save, _cancel;
+    private readonly Border _formSurface;
+    private readonly DockPanel _scheduled;
+    private readonly ScrollViewer _pageScroll, _listScroll;
+    private readonly Grid _layout = new();
+    private (Guid Id, string Title, string Detail)[] _listed = [];
     private Guid? _editing;
+    private RepeatFrequency _frequency;
 
     public RoutineWindow(Window owner, TaskService service)
     {
         Ui.ThemeWindow(this);
-        _service = service; Title = "Levitation · 日常任务"; Owner = owner; Width = 520; Height = Math.Min(620, SystemParameters.WorkArea.Height - 60);
-        WindowStartupLocation = WindowStartupLocation.CenterOwner; MinWidth = 430; MinHeight = 380; ShowInTaskbar = false; ResizeMode = ResizeMode.NoResize;
-        var panel = new StackPanel { Margin = new Thickness(20) };
-        var form = new StackPanel(); _title.Height = _title.MinHeight = 34;
-        form.Children.Add(Ui.Field("任务内容", _title));
-        _frequency.Items.Add("指定日期"); _frequency.Items.Add("每天"); _frequency.Items.Add("每周"); _frequency.SelectedIndex = 0; _frequency.Height = _frequency.MinHeight = 34;
-        var fields = _fields;
-        fields.Margin = new Thickness(0, 14, 0, 0);
-        var left = Ui.Field("出现频率", _frequency); left.Margin = new Thickness(0, 0, 12, 0); fields.Children.Add(left);
-        _dateField = Ui.Field("任务日期", _date); fields.Children.Add(_dateField); form.Children.Add(fields);
-        var dayLabel = Ui.Text("重复日期", 11, true); dayLabel.Margin = new Thickness(0, 0, 0, 6); _weekdays.Children.Add(dayLabel);
-        var dayGrid = new UniformGrid { Columns = 7 }; _weekdays.Children.Add(dayGrid);
-        foreach (var day in new[] { DayOfWeek.Monday, DayOfWeek.Tuesday, DayOfWeek.Wednesday, DayOfWeek.Thursday, DayOfWeek.Friday, DayOfWeek.Saturday, DayOfWeek.Sunday })
+        _service = service;
+        Title = "Levitation · 日常任务";
+        Owner = owner;
+        ShowInTaskbar = false;
+        ResizeMode = ResizeMode.NoResize;
+
+        var form = new StackPanel();
+        form.Children.Add(_editorHeading);
+        _title.Height = _title.MinHeight = 34;
+        _title.Padding = new Thickness(10, 3, 10, 3);
+        _title.TextChanged += (_, _) => ClearError();
+        _title.KeyDown += (_, e) =>
         {
-            var checkbox = new CheckBox { Content = "日一二三四五六"[(int)day].ToString(), Margin = new Thickness(0, 4, 0, 4), IsChecked = day == DateTime.Today.DayOfWeek };
-            _days[day] = checkbox; dayGrid.Children.Add(checkbox);
+            if (e.Key != Key.Enter || e.Handled) return;
+            e.Handled = true;
+            App.Try(Save);
+        };
+        AddField("任务内容", _title);
+
+        var choices = new UniformGrid { Columns = 3 };
+        var choiceTemplate = ChoiceTemplate();
+        var options = new[] { ("指定日期", RepeatFrequency.Once), ("每天", RepeatFrequency.Daily), ("每周", RepeatFrequency.Weekly) };
+        foreach (var (label, frequency) in options)
+        {
+            var option = new RadioButton
+            {
+                Content = label, Tag = frequency, GroupName = "RoutineFrequency",
+                Height = 34, Template = choiceTemplate,
+                Margin = new Thickness(0, 0, choices.Children.Count < 2 ? 4 : 0, 0)
+            };
+            option.Checked += (_, _) => SelectFrequency(frequency);
+            choices.Children.Add(option);
         }
-        form.Children.Add(_weekdays);
-        _save = Ui.Action("添加任务", Save, true); _cancel = Ui.Action("取消编辑", Reset); _cancel.Visibility = Visibility.Collapsed;
-        _save.MinWidth = _cancel.MinWidth = 88; _save.Height = _cancel.Height = 32;
-        form.Children.Add(Ui.Buttons(_cancel, _save));
-        panel.Children.Add(Ui.Card(form, new Thickness(16)));
-        var hint = Ui.Text("到期自动进入当天待办。每天／每周任务按日期分别记录完成状态。", 11, true); hint.Margin = new Thickness(0, 10, 0, 20); panel.Children.Add(hint);
-        var heading = Ui.Text("已安排的任务", 13); heading.FontWeight = FontWeights.SemiBold; panel.Children.Add(heading); panel.Children.Add(_list);
-        Content = Ui.Scroll(panel);
-        _frequency.SelectionChanged += (_, _) => UpdateFields();
-        UpdateFields(); RefreshList();
+        _once = (RadioButton)choices.Children[0];
+        _frequencyChoices = choices;
+        AddField("出现频率", choices);
+
+        _dateField = AddField("任务日期", _date);
+        var dayGrid = new UniformGrid { Columns = 7 };
+        foreach (var day in Weekdays)
+        {
+            var label = "日一二三四五六"[(int)day].ToString();
+            var button = new CheckBox { Content = label, Template = choiceTemplate, Height = 34,
+                Margin = new Thickness(0, 0, day == DayOfWeek.Sunday ? 0 : 4, 0) };
+            AutomationProperties.SetName(button, $"星期{label}");
+            button.Checked += (_, _) => ClearError();
+            button.Unchecked += (_, _) => ClearError();
+            _dayButtons.Add(day, button);
+            dayGrid.Children.Add(button);
+        }
+        _weekdaysField = AddField("每周哪几天", dayGrid);
+
+        _error.Margin = new Thickness(0, 10, 0, 0);
+        _error.SetResourceReference(TextBlock.ForegroundProperty, "Danger");
+        AutomationProperties.SetLiveSetting(_error, AutomationLiveSetting.Polite);
+        form.Children.Add(_error);
+        _save = SettingsLayout.Action("添加任务", Save, primary: true);
+        _cancel = SettingsLayout.Action("取消编辑", () => Reset(focus: true));
+        _cancel.Margin = new Thickness(0, 0, 7, 0);
+        var actions = new StackPanel { Orientation = Orientation.Horizontal, HorizontalAlignment = HorizontalAlignment.Right,
+            Margin = new Thickness(0, 14, 0, 0) };
+        actions.Children.Add(_cancel);
+        actions.Children.Add(_save);
+        form.Children.Add(actions);
+        _formSurface = Ui.Card(form, new Thickness(14));
+        _formSurface.SetResourceReference(Border.BackgroundProperty, "Paper");
+        _formSurface.VerticalAlignment = VerticalAlignment.Top;
+        _layout.Children.Add(_formSurface);
+
+        _scheduled = new DockPanel();
+        var listHeader = new DockPanel { Margin = new Thickness(0, 0, 0, 9) };
+        DockPanel.SetDock(_count, Dock.Right);
+        listHeader.Children.Add(_count);
+        listHeader.Children.Add(Heading("已安排"));
+        DockPanel.SetDock(listHeader, Dock.Top);
+        _scheduled.Children.Add(listHeader);
+        _listScroll = Ui.Scroll(_list);
+        _scheduled.Children.Add(_listScroll);
+        _layout.Children.Add(_scheduled);
+        _pageScroll = Ui.Scroll(_layout);
+        Content = SettingsLayout.Page("日常任务", "到期的任务会自动出现在当天待办里。", _pageScroll);
+        SizeChanged += (_, e) =>
+        {
+            ArrangeSections(e.NewSize.Width >= 720);
+            UpdateScrollMode(e.NewSize.Height);
+        };
+        ArrangeSections(false);
+        UpdateScrollMode(0);
+        Reset();
+        RefreshList();
+
+        StackPanel AddField(string label, UIElement control)
+        {
+            var field = Ui.Field(label, control);
+            field.Margin = new Thickness(0, 12, 0, 0);
+            form.Children.Add(field);
+            return field;
+        }
     }
-    private void UpdateFields()
+
+    private void ArrangeSections(bool sideBySide)
     {
-        _weekdays.Visibility = _frequency.SelectedIndex == 2 ? Visibility.Visible : Visibility.Collapsed;
-        _dateField.Visibility = _frequency.SelectedIndex == 0 ? Visibility.Visible : Visibility.Collapsed;
-        _fields.Columns = _frequency.SelectedIndex == 0 ? 2 : 1;
-        ((FrameworkElement)_fields.Children[0]).Margin = new Thickness(0, 0, _frequency.SelectedIndex == 0 ? 12 : 0, 0);
-        ((FrameworkElement)_fields.Children[0]).Width = _frequency.SelectedIndex == 0 ? double.NaN : 216;
-        ((FrameworkElement)_fields.Children[0]).HorizontalAlignment = _frequency.SelectedIndex == 0 ? HorizontalAlignment.Stretch : HorizontalAlignment.Left;
-        if (_frequency.SelectedIndex != 0) _date.Close();
+        if ((_layout.ColumnDefinitions.Count == 2) == sideBySide && _layout.RowDefinitions.Count > 0) return;
+        _layout.ColumnDefinitions.Clear();
+        _layout.RowDefinitions.Clear();
+        _layout.ColumnDefinitions.Add(new ColumnDefinition { Width = sideBySide ? new GridLength(320) : new GridLength(1, GridUnitType.Star) });
+        _layout.RowDefinitions.Add(new RowDefinition { Height = sideBySide ? new GridLength(1, GridUnitType.Star) : GridLength.Auto });
+        if (sideBySide)
+            _layout.ColumnDefinitions.Add(new ColumnDefinition());
+        else
+            _layout.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+        Grid.SetColumn(_scheduled, sideBySide ? 1 : 0);
+        Grid.SetRow(_scheduled, sideBySide ? 0 : 1);
+        _scheduled.Margin = sideBySide ? new Thickness(16, 0, 0, 0) : new Thickness(0, 18, 0, 0);
+        _pageScroll.ScrollToTop();
     }
+
+    private void UpdateScrollMode(double height)
+    {
+        // Keep the form in view beside a long list. On narrow or short screens,
+        // the entire page scrolls so the form and its actions remain reachable.
+        bool separateList = _layout.ColumnDefinitions.Count == 2 && height >= 480;
+        _pageScroll.VerticalScrollBarVisibility = separateList ? ScrollBarVisibility.Disabled : ScrollBarVisibility.Auto;
+        _listScroll.VerticalScrollBarVisibility = separateList ? ScrollBarVisibility.Auto : ScrollBarVisibility.Disabled;
+    }
+
+    private static TextBlock Heading(string text)
+    {
+        var heading = Ui.Text(text, 14);
+        heading.FontWeight = FontWeights.SemiBold;
+        AutomationProperties.SetHeadingLevel(heading, AutomationHeadingLevel.Level2);
+        return heading;
+    }
+
+    private static ControlTemplate ChoiceTemplate()
+    {
+        var template = new ControlTemplate(typeof(ToggleButton));
+        var border = new FrameworkElementFactory(typeof(Border), "Choice");
+        border.SetValue(Border.CornerRadiusProperty, new CornerRadius(7));
+        border.SetValue(Border.BorderThicknessProperty, new Thickness(1));
+        border.SetResourceReference(Border.BackgroundProperty, "Surface");
+        border.SetResourceReference(Border.BorderBrushProperty, "Line");
+        border.SetResourceReference(TextElement.ForegroundProperty, "Ink");
+        var text = new FrameworkElementFactory(typeof(ContentPresenter));
+        text.SetValue(ContentPresenter.ContentSourceProperty, "Content");
+        text.SetValue(FrameworkElement.HorizontalAlignmentProperty, HorizontalAlignment.Center);
+        text.SetValue(FrameworkElement.VerticalAlignmentProperty, VerticalAlignment.Center);
+        border.AppendChild(text);
+        template.VisualTree = border;
+        foreach (var property in new[] { IsMouseOverProperty, IsKeyboardFocusedProperty })
+        {
+            var highlight = new Trigger { Property = property, Value = true };
+            highlight.Setters.Add(new Setter(Border.BorderBrushProperty, new DynamicResourceExtension("ControlLine"), "Choice"));
+            template.Triggers.Add(highlight);
+        }
+        var selected = new Trigger { Property = ToggleButton.IsCheckedProperty, Value = true };
+        selected.Setters.Add(new Setter(Border.BackgroundProperty, new DynamicResourceExtension("Button"), "Choice"));
+        selected.Setters.Add(new Setter(TextElement.ForegroundProperty, new DynamicResourceExtension("ButtonText"), "Choice"));
+        template.Triggers.Add(selected);
+        return template;
+    }
+
+    private void SelectFrequency(RepeatFrequency frequency)
+    {
+        _frequency = frequency;
+        _dateField.Visibility = frequency == RepeatFrequency.Once ? Visibility.Visible : Visibility.Collapsed;
+        _weekdaysField.Visibility = frequency == RepeatFrequency.Weekly ? Visibility.Visible : Visibility.Collapsed;
+        if (frequency != RepeatFrequency.Once) _date.Close();
+        ClearError();
+    }
+
+    private void ClearError() => _error.Visibility = Visibility.Collapsed;
+
+    private void ShowError(string message, Control focus)
+    {
+        _error.Text = message;
+        _error.Visibility = Visibility.Visible;
+        focus.Focus();
+    }
+
     private void Save()
     {
-        var prior = _editing.HasValue ? _service.State.Routines.First(r => r.Id == _editing.Value) : null;
+        if (string.IsNullOrWhiteSpace(_title.Text)) { ShowError("请输入任务内容。", _title); return; }
+        var days = Weekdays.Where(day => _dayButtons[day].IsChecked == true).ToList();
+        if (_frequency == RepeatFrequency.Weekly && days.Count == 0)
+        {
+            ShowError("请选择至少一天。", _dayButtons[Weekdays[0]]);
+            return;
+        }
+        var prior = _service.State.Routines.FirstOrDefault(rule => rule.Id == _editing);
         _service.SaveRoutine(new Routine
         {
-            Id = _editing ?? Guid.NewGuid(), Title = _title.Text, Frequency = (RepeatFrequency)_frequency.SelectedIndex,
-            StartDate = _frequency.SelectedIndex == 0 ? _date.SelectedDate : prior?.Frequency == (RepeatFrequency)_frequency.SelectedIndex ? prior.StartDate : _service.Today,
-            Weekdays = _days.Where(p => p.Value.IsChecked == true).Select(p => p.Key).ToList(), Extra = prior?.Extra
+            Id = prior?.Id ?? Guid.NewGuid(), Title = _title.Text, Frequency = _frequency,
+            StartDate = _frequency == RepeatFrequency.Once ? _date.SelectedDate :
+                prior?.Frequency == _frequency ? prior.StartDate : _service.Today,
+            Weekdays = days, Extra = prior?.Extra
         });
-        Reset(); RefreshList();
+        Reset(focus: true);
+        RefreshList();
     }
-    private void Reset()
-    { _editing = null; _title.Clear(); _frequency.SelectedIndex = 0; _date.SelectedDate = _service.Today; _save.Content = "添加任务"; _cancel.Visibility = Visibility.Collapsed; UpdateFields(); }
+
+    private void Reset(bool focus = false)
+    {
+        _editing = null;
+        _title.Clear();
+        _once.IsChecked = true;
+        SelectFrequency(RepeatFrequency.Once);
+        _date.SelectedDate = _service.Today;
+        foreach (var (day, button) in _dayButtons) button.IsChecked = day == _service.Today.DayOfWeek;
+        _editorHeading.Text = "新增安排";
+        _save.Content = "添加任务";
+        _cancel.Visibility = Visibility.Collapsed;
+        if (focus) _title.Focus();
+    }
+
+    private void Edit(Guid id)
+    {
+        var rule = _service.State.Routines.FirstOrDefault(routine => routine.Id == id);
+        if (rule == null) return;
+        _editing = rule.Id;
+        _editorHeading.Text = "编辑安排";
+        _title.Text = rule.Title;
+        ((RadioButton)_frequencyChoices.Children[(int)rule.Frequency]).IsChecked = true;
+        _date.SelectedDate = rule.StartDate;
+        foreach (var (day, button) in _dayButtons) button.IsChecked = rule.Weekdays.Contains(day);
+        _save.Content = "保存修改";
+        _cancel.Visibility = Visibility.Visible;
+        ClearError();
+        _formSurface.BringIntoView();
+        _title.Focus();
+        _title.SelectAll();
+    }
+
     public void RefreshList()
     {
+        if (_editing is Guid edit && !_service.State.Routines.Any(rule => rule.Id == edit)) Reset();
+        var rows = _service.State.Routines.Select(rule => (rule.Id, rule.Title, rule.Description)).ToArray();
+        if (rows.SequenceEqual(_listed) && _list.Children.Count > 0) return;
+        _listed = rows;
+        _count.Text = $"{rows.Length} 项";
         _list.Children.Clear();
-        if (_service.State.Routines.Count == 0) { var empty = Ui.Text("还没有日常任务。", 12, true); empty.Margin = new Thickness(0, 12, 0, 0); _list.Children.Add(empty); }
-        foreach (var rule in _service.State.Routines)
+        if (rows.Length == 0)
         {
-            var row = new DockPanel { Margin = new Thickness(0, 7, 0, 7) };
-            var actions = new StackPanel { Orientation = Orientation.Horizontal };
-            actions.Children.Add(Ui.Icon(Ui.Edit, "编辑安排", () =>
-            {
-                _editing = rule.Id; _title.Text = rule.Title; _frequency.SelectedIndex = (int)rule.Frequency;
-                _date.SelectedDate = rule.StartDate;
-                foreach (var pair in _days) pair.Value.IsChecked = rule.Weekdays.Contains(pair.Key);
-                _save.Content = "保存修改"; _cancel.Visibility = Visibility.Visible; _title.Focus();
-            }));
-            actions.Children.Add(Ui.Icon(Ui.Delete, "删除安排，已生成的待办会保留", () =>
-            { _service.DeleteRoutine(rule.Id); if (_editing == rule.Id) Reset(); }));
-            DockPanel.SetDock(actions, Dock.Right); row.Children.Add(actions);
-            var detail = Ui.Text(rule.Description, 11, true); detail.Margin = new Thickness(0, 4, 0, 0); row.Children.Add(Ui.Stack(Ui.Text(rule.Title), detail));
-            var card = Ui.Card(row); card.Margin = new Thickness(0, 8, 0, 0); _list.Children.Add(card);
+            _list.Children.Add(SettingsLayout.Empty("还没有安排。"));
+            return;
         }
+
+        var items = rows.Select(rule =>
+        {
+            var edit = Ui.Icon(Ui.Edit, "编辑安排", () => Edit(rule.Id));
+            var delete = Ui.Icon(Ui.Delete, "删除安排，保留已生成的待办", () => _service.DeleteRoutine(rule.Id));
+            AutomationProperties.SetName(edit, $"编辑安排 {rule.Title}");
+            AutomationProperties.SetName(delete, $"删除安排 {rule.Title}");
+            var actions = new StackPanel { Orientation = Orientation.Horizontal };
+            actions.Children.Add(edit);
+            actions.Children.Add(delete);
+            return SettingsLayout.Row(rule.Title, rule.Description, actions, singleLineTitle: true);
+        });
+        _list.Children.Add(SettingsLayout.Surface(SettingsLayout.SeparatedRows(items)));
     }
 }

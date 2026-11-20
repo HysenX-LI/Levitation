@@ -67,20 +67,20 @@ internal static class NativeWindow
         return _contentWindow != IntPtr.Zero && IsWindow(_contentWindow)
             ? Forms.Screen.FromHandle(_contentWindow) : Forms.Screen.FromPoint(Forms.Cursor.Position);
     }
-    public static void ShowCentered(Window window, Forms.Screen screen)
+    public static void ShowCentered(Window window, Forms.Screen screen, double preferredWidth = 600, double preferredHeight = 690)
     {
         double scale = Scale(screen); var area = screen.WorkingArea;
         double availableWidth = Math.Max(1, area.Width / scale - 48), availableHeight = Math.Max(1, area.Height / scale - 48);
         window.WindowStartupLocation = WindowStartupLocation.Manual;
         window.MinWidth = Math.Min(430, availableWidth); window.MinHeight = Math.Min(380, availableHeight);
-        window.Width = Math.Min(600, availableWidth); window.Height = Math.Min(690, availableHeight);
+        window.Width = Math.Min(preferredWidth, availableWidth); window.Height = Math.Min(preferredHeight, availableHeight);
         window.WindowState = WindowState.Normal;
         bool opening = !window.IsVisible; double opacity = window.Opacity;
         if (opening) { window.Opacity = 0; window.Show(); }
         try
         {
             int width = (int)Math.Round(window.Width * scale), height = (int)Math.Round(window.Height * scale);
-            // Keep the existing Z order; centering a settings window must not
+            // Keep the existing Z order; centering a utility window must not
             // turn it into an always-on-top window.
             SetWindowPos(new WindowInteropHelper(window).EnsureHandle(), IntPtr.Zero,
                 area.Left + (area.Width - width) / 2, area.Top + (area.Height - height) / 2, width, height, 0x0004 | 0x0010);

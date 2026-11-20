@@ -794,8 +794,11 @@ internal sealed class DockWindow : Window
     }
     public void OpenRoutines()
     {
+        var screen = NativeWindow.ContentScreen();
         Expand();
         if (_routines != null) { Ui.BringForward(_routines); return; }
-        _routines = new RoutineWindow(this, _service); _routines.Closed += (_, _) => _routines = null; _routines.Show();
+        _routines = new RoutineWindow(this, _service);
+        _routines.Closed += (_, _) => _routines = null;
+        NativeWindow.ShowCentered(_routines, screen, preferredWidth: 760, preferredHeight: 560);
     }
 }
