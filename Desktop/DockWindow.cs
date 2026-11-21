@@ -593,15 +593,15 @@ internal sealed class DockWindow : Window
             if (!composing && composer != null) { contents.Children.Remove(composer); composer = null; _subtaskInputs.Remove(task.Id); }
             if (composing && composer == null)
             {
-                composer = new SubtaskPanel(this, task, _subtaskDrafts.GetValueOrDefault(task.Id, ""), value => _subtaskDrafts[task.Id] = value,
+                composer = new SubtaskPanel(this, task.Title, _subtaskDrafts.GetValueOrDefault(task.Id, ""), value => _subtaskDrafts[task.Id] = value,
                     () => SaveSubtask(task.Id), panel =>
                     {
                         if (ReferenceEquals(composer, panel) && ReferenceEquals(_subtaskInputs.GetValueOrDefault(task.Id), panel.Input))
                             CloseSubtaskComposer(task.Id);
                     });
-                contents.Children.Add(composer); if (composer.Input != null) _subtaskInputs[task.Id] = composer.Input;
+                contents.Children.Add(composer);
             }
-            if (composer?.Input != null) _subtaskInputs[task.Id] = composer.Input;
+            if (composer != null) _subtaskInputs[task.Id] = composer.Input;
             body.IsHitTestVisible = open;
             if (!(animate && group.IsLoaded && IsVisible && SystemParameters.ClientAreaAnimation)) { body.Visibility = open ? Visibility.Visible : Visibility.Collapsed; body.Height = double.NaN; UpdateListHeights(); return; }
             body.Visibility = Visibility.Visible; contents.Measure(new Size(Math.Max(1, row.ActualWidth - indent * 2), double.PositiveInfinity));

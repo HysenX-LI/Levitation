@@ -233,6 +233,7 @@ public sealed class TaskService(DataStore store, Func<DateTimeOffset>? clock = n
     {
         routine.Title = routine.Title.Trim();
         if (routine.Title.Length == 0) throw new ArgumentException("请输入任务内容。");
+        if (!routine.IsValid) throw new ArgumentException("日常任务的重复规则或子待办无效。");
         if (routine.Frequency == RepeatFrequency.Weekly && routine.Weekdays.Count == 0) throw new ArgumentException("请选择至少一天。");
         Commit(s =>
         {
@@ -257,19 +258,28 @@ public sealed class TaskService(DataStore store, Func<DateTimeOffset>? clock = n
     }
     private int AddDueOccurrences(AppState state)
     {
-        var due = state.Routines.Where(r => r.IsDue(Today)).Select(r => new
+        var today = Today;
+        var now = Now;
+        var due = state.Routines.Where(r => r.IsDue(today)).Select(r => new
         {
-            Rule = r, Date = r.Frequency == RepeatFrequency.Once ? r.StartDate : Today,
-            Key = $"{r.Id:N}:{(r.Frequency == RepeatFrequency.Once ? r.StartDate : Today):yyyy-MM-dd}"
+            Rule = r, Date = r.Frequency == RepeatFrequency.Once ? r.StartDate : today,
+            Key = $"{r.Id:N}:{(r.Frequency == RepeatFrequency.Once ? r.StartDate : today):yyyy-MM-dd}"
         }).Where(x => !TaskTree.Walk(state.Tasks).Any(n => n.Item.OccurrenceKey == x.Key) &&
                       !state.SuppressedOccurrences.Contains(x.Key) &&
                       !state.History.Any(h => h.TaskId == OccurrenceId(x.Key))).ToList();
         foreach (var x in due) state.Tasks.Add(new TaskItem
             {
-                Id = OccurrenceId(x.Key), Title = x.Rule.Title, CreatedAt = Now, RoutineId = x.Rule.Id,
-                DueDate = x.Date, OccurrenceKey = x.Key, Repeats = x.Rule.Frequency != RepeatFrequency.Once
+                Id = OccurrenceId(x.Key), Title = x.Rule.Title, CreatedAt = now, RoutineId = x.Rule.Id,
+                DueDate = x.Date, OccurrenceKey = x.Key, Repeats = x.Rule.Frequency != RepeatFrequency.Once,
+                Subtasks = x.Rule.Subtasks.Select(CreateSubtask).ToList()
             });
         return due.Count;
+
+        Subtask CreateSubtask(RoutineSubtask template) => new()
+        {
+            Title = template.Title, CreatedAt = now,
+            Subtasks = template.Children.Select(CreateSubtask).ToList()
+        };
     }
     private static Guid OccurrenceId(string key) => new(System.Security.Cryptography.SHA256.HashData(System.Text.Encoding.UTF8.GetBytes(key)).AsSpan(0, 16));
     public void SavePreferences(Preferences preferences, Action? afterSave = null) =>

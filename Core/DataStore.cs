@@ -12,6 +12,8 @@ public sealed class UnsupportedSchemaException(int version) : Exception(
 /// </summary>
 public sealed partial class DataStore : IDisposable
 {
+    private const int CurrentSchema = 2;
+
     public static readonly JsonSerializerOptions Json = new()
     {
         PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
@@ -58,7 +60,7 @@ public sealed partial class DataStore : IDisposable
         var root = document.RootElement;
         if (root.ValueKind != JsonValueKind.Object || !root.TryGetProperty("schemaVersion", out var version) || version.ValueKind != JsonValueKind.Number || !version.TryGetInt32(out var number))
             throw new InvalidDataException("文件不是完整的 Levitation 数据备份。");
-        if (number > 1) throw new UnsupportedSchemaException(number);
+        if (number > CurrentSchema) throw new UnsupportedSchemaException(number);
         foreach (var required in new[] { "tasks", "cards", "routines", "history", "trash", "preferences" })
             if (!root.TryGetProperty(required, out _)) throw new InvalidDataException($"数据文件缺少 {required}，已停止读取以保护原文件。");
         var state = JsonSerializer.Deserialize<AppState>(bytes, Json)
@@ -69,15 +71,15 @@ public sealed partial class DataStore : IDisposable
 
     public static void Validate(AppState state)
     {
-        if (state.SchemaVersion > 1) throw new UnsupportedSchemaException(state.SchemaVersion);
-        if (state.SchemaVersion != 1 || state.Tasks == null || state.Cards == null ||
+        if (state.SchemaVersion > CurrentSchema) throw new UnsupportedSchemaException(state.SchemaVersion);
+        if (state.SchemaVersion < 1 || state.Tasks == null || state.Cards == null ||
             state.Routines == null || state.History == null || state.Trash == null ||
             state.Preferences == null || state.SuppressedOccurrences == null || state.ImportedSources == null)
             throw new InvalidDataException("数据结构不完整，已停止读取以保护原文件。");
         var taskIds = new HashSet<Guid>();
         if (state.Tasks.Any(t => !ValidTask(t, 0, taskIds)) ||
             state.Cards.Any(c => !ValidCard(c)) ||
-            state.Routines.Any(r => r == null || r.Title == null || r.Weekdays == null || !Enum.IsDefined(r.Frequency) || r.Weekdays.Any(d => !Enum.IsDefined(d))) ||
+            state.Routines.Any(r => r == null || !r.IsValid) ||
             state.History.Any(h => h == null || h.Title == null || (h.Subtasks?.Any(c => c == null || c.TaskId == Guid.Empty ||
                 c.Title == null || c.Depth < 1 || c.Depth > TaskTree.MaximumDepth) ?? false)) ||
             state.Trash.Any(t => t == null || (t.Task == null) == (t.Card == null) || (t.Task != null && !ValidTask(t.Task)) || (t.Card != null && !ValidCard(t.Card)) ||
@@ -129,6 +131,8 @@ public sealed partial class DataStore : IDisposable
     {
         ObjectDisposedException.ThrowIf(_disposed, this);
         Validate(next);
+        // Older releases reject a newer schema before attempting backup recovery.
+        if (next.Routines.Any(rule => rule.RequiresNewSchema)) next.SchemaVersion = CurrentSchema;
         var temp = Path.Combine(DirectoryPath, $"state.{Guid.NewGuid():N}.tmp");
         next.Revision = State == null ? 1 : State.Revision + 1;
         try
@@ -136,6 +140,12 @@ public sealed partial class DataStore : IDisposable
             var bytes = JsonSerializer.SerializeToUtf8Bytes(next, Json);
             using (var stream = new FileStream(temp, FileMode.CreateNew, FileAccess.Write, FileShare.None,
                 4096, FileOptions.WriteThrough)) { stream.Write(bytes); stream.Flush(true); }
+            if (State is { SchemaVersion: 1 } && next.SchemaVersion == CurrentSchema)
+            {
+                var original = !_preserveCorruptPrimary && File.Exists(FilePath) ? FilePath : RecoverySource;
+                if (original != null)
+                    File.Copy(original, Path.Combine(DirectoryPath, $"before-schema-{CurrentSchema}-{Guid.NewGuid():N}.json"));
+            }
             // Backup failures abort the commit; never silently sacrifice the last good data.
             if (File.Exists(FilePath))
             {

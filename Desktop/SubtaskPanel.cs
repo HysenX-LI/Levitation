@@ -4,12 +4,12 @@ namespace Levitation.Desktop;
 
 internal sealed class SubtaskPanel : StackPanel
 {
-    public TextBox? Input { get; }
+    public TextBox Input { get; }
 
-    public SubtaskPanel(Window owner, TaskItem parent, string draft,
+    public SubtaskPanel(Window owner, string parentTitle, string draft,
         Action<string> draftChanged, Action save, Action<SubtaskPanel> closeComposer)
     {
-        Input = Ui.Input("为“" + parent.Title + "”添加子待办", draft); Input.Height = Input.MinHeight = 28;
+        Input = Ui.Input("为“" + parentTitle + "”添加子待办", draft); Input.Height = Input.MinHeight = 28;
         Input.FontSize = 11.5; Input.Padding = new Thickness(8, 2, 8, 2); Input.BorderThickness = new Thickness(0); Input.Background = Brushes.Transparent;
         Input.Template = Ui.InputTemplate(decorate: false);
         var field = new Grid(); field.Children.Add(Input);
@@ -25,7 +25,7 @@ internal sealed class SubtaskPanel : StackPanel
             if (e.Key == Key.Enter && !composing && Keyboard.Modifiers == ModifierKeys.None) { App.Try(save); e.Handled = true; }
             else if (e.Key == Key.Escape && !composing) { closeComposer(this); e.Handled = true; }
         };
-        var line = new DockPanel(); var enter = TaskControls.Button(TaskControls.Glyph(TaskControls.Enter, 13), "保存子待办", parent.Title, save); enter.Height = 26;
+        var line = new DockPanel(); var enter = TaskControls.Button(TaskControls.Glyph(TaskControls.Enter, 13), "保存子待办", parentTitle, save); enter.Height = 26;
         DockPanel.SetDock(enter, Dock.Right); line.Children.Add(enter); line.Children.Add(field);
         var surface = new Border { Child = line, BorderThickness = new Thickness(1), CornerRadius = new CornerRadius(7), Margin = new Thickness(4, 4, 0, 2) };
         surface.SetResourceReference(Border.BorderBrushProperty, "Line"); surface.SetResourceReference(Border.BackgroundProperty, "Paper"); Children.Add(surface);

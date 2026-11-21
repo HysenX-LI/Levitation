@@ -14,6 +14,9 @@ var tests = new (string Name, Action Run)[]
     ("legacy import is idempotent and leaves originals", Import),
     ("malformed legacy import is transactional", BadImport),
     ("daily and weekly occurrences survive restart", Recurring),
+    ("monthly date rules match what the planner previews", MonthlyRecurrence),
+    ("custom repeat periods are anchored to their start date", CustomRecurrence),
+    ("routine templates upgrade legacy data and generate independent nested tasks", RoutineTemplates),
     ("trash retains last ten and restores named cards", Trash),
     ("clearing trash persists without changing active data or recurring suppression", ClearTrash),
     ("completion history survives task deletion", History),
@@ -851,6 +854,119 @@ static void Recurring()
     now = now.AddDays(6); next.EnsureToday(); Check(next.Pending.Count() == 2);
     next.AddTask("同名"); next.AddTask("同名"); Check(next.Pending.Count(t => t.Title == "同名") == 2);
 }
+
+static void CheckSchedule(Routine rule, DateOnly from, params DateOnly[] dates)
+{
+    Check(rule.Upcoming(from, dates.Length).SequenceEqual(dates), rule.Description);
+    for (var day = from; day < dates[^1]; day = day.AddDays(1))
+        Check(rule.IsDue(day) == dates.Contains(day), $"Unexpected result for {day}: {rule.Description}");
+    Check(rule.IsDue(dates[^1]));
+}
+
+static void MonthlyRecurrence()
+{
+    var start = new DateOnly(2027, 1, 1);
+    var rule = new Routine { StartDate = start, Frequency = RepeatFrequency.Monthly };
+    rule.Monthly = new(MonthlyRule.FirstDay);
+    CheckSchedule(rule, start, start, new(2027, 2, 1), new(2027, 3, 1));
+    rule.Monthly = new(MonthlyRule.LastDay);
+    CheckSchedule(rule, start, new(2027, 1, 31), new(2027, 2, 28), new(2027, 3, 31));
+    rule.Monthly = new(MonthlyRule.NthWeekday, Occurrence: 2, Weekday: DayOfWeek.Friday);
+    CheckSchedule(rule, start, new(2027, 1, 8), new(2027, 2, 12), new(2027, 3, 12));
+    rule.Monthly = rule.Monthly with { Occurrence = 5 };
+    CheckSchedule(rule, start, new(2027, 1, 29), new(2027, 4, 30), new(2027, 7, 30));
+    rule.Monthly = new(MonthlyRule.LastWeekday, Weekday: DayOfWeek.Monday);
+    CheckSchedule(rule, start, new(2027, 1, 25), new(2027, 2, 22), new(2027, 3, 29));
+    rule.Monthly = new(Day: 31);
+    CheckSchedule(rule, start, new(2027, 1, 31), new(2027, 3, 31), new(2027, 5, 31));
+    rule.Monthly = rule.Monthly with { MissingDay = MissingMonthDay.UseLastDay };
+    CheckSchedule(rule, start, new(2027, 1, 31), new(2027, 2, 28), new(2027, 3, 31));
+    CheckSchedule(rule, new(2028, 2, 1), new(2028, 2, 29), new(2028, 3, 31), new(2028, 4, 30));
+    rule.StartDate = new(9999, 12, 1);
+    Check(rule.Upcoming(rule.StartDate).SequenceEqual(new[] { DateOnly.MaxValue }));
+}
+
+static void CustomRecurrence()
+{
+    var start = new DateOnly(2027, 1, 6); // Wednesday
+    var daily = new Routine { StartDate = start, Frequency = RepeatFrequency.Daily, Interval = 3 };
+    CheckSchedule(daily, start, start, new(2027, 1, 9), new(2027, 1, 12));
+    var workdays = new Routine { StartDate = start, Frequency = RepeatFrequency.Workdays };
+    CheckSchedule(workdays, new(2027, 1, 1), start, new(2027, 1, 7), new(2027, 1, 8), new(2027, 1, 11));
+    var weekly = new Routine { StartDate = start, Frequency = RepeatFrequency.Weekly, Interval = 2, Weekdays = [DayOfWeek.Monday, DayOfWeek.Friday] };
+    CheckSchedule(weekly, new(2027, 1, 1), new(2027, 1, 8), new(2027, 1, 18), new(2027, 1, 22));
+    var monthly = new Routine { StartDate = start, Frequency = RepeatFrequency.Monthly, Interval = 2, Monthly = new(MonthlyRule.FirstDay) };
+    CheckSchedule(monthly, start, new(2027, 3, 1), new(2027, 5, 1), new(2027, 7, 1));
+    var yearly = new Routine { StartDate = new(2028, 2, 29), Frequency = RepeatFrequency.Yearly, Interval = 2 };
+    CheckSchedule(yearly, new(2029, 1, 1), new(2030, 2, 28), new(2032, 2, 29), new(2034, 2, 28));
+    monthly.Monthly = new(Day: 31);
+    monthly.Interval = 12;
+    monthly.StartDate = new(2027, 2, 1);
+    Check(!monthly.Upcoming(monthly.StartDate).Any(), "February never has 31 days");
+}
+
+static void RoutineTemplates()
+{
+    using var dir = new TestDirectory();
+    var legacyId = Guid.NewGuid();
+    var path = Path.Combine(dir.Path, "state.json");
+    var legacy = $$"""
+        {"schemaVersion":1,"tasks":[],"cards":[],"history":[],"trash":[],"preferences":{},
+         "routines":[{"id":"{{legacyId}}","title":"旧每周安排","frequency":"Weekly",
+          "startDate":"2027-01-01","weekdays":["Monday"]}]}
+        """;
+    File.WriteAllText(path, legacy);
+    var now = new DateTimeOffset(2027, 1, 31, 10, 0, 0, TimeSpan.FromHours(8));
+    Guid routineId, firstChild, firstLeaf;
+    using (var store = new DataStore(dir.Path))
+    {
+        var oldRule = store.State.Routines.Single();
+        Check(oldRule.Id == legacyId && oldRule.Interval == 1 && oldRule.Monthly == null && oldRule.Subtasks.Count == 0);
+        Check(oldRule.Upcoming(new(2027, 2, 1)).First() == new DateOnly(2027, 2, 1));
+        var service = new TaskService(store, () => now);
+        var rule = new Routine
+        {
+            Title = "月末安排", Frequency = RepeatFrequency.Monthly, StartDate = service.Today,
+            Monthly = new(Day: 31, MissingDay: MissingMonthDay.UseLastDay),
+            Subtasks = [new("一级", [new("二级", [new("三级", [])])])]
+        };
+        routineId = rule.Id;
+        service.SaveRoutine(rule);
+        Check(store.State.SchemaVersion == 2);
+        Check(File.ReadAllText(Directory.GetFiles(dir.Path, "before-schema-2-*.json").Single()) == legacy);
+        var occurrence = service.Pending.Single();
+        var branch = occurrence.Subtasks.Single();
+        var leafParent = branch.Subtasks.Single();
+        var leaf = leafParent.Subtasks.Single();
+        firstChild = branch.Id;
+        firstLeaf = leaf.Id;
+        service.CompleteSubtask(leafParent.Id, firstLeaf, true);
+        var edited = store.Snapshot().Routines.Single(r => r.Id == routineId);
+        edited.Subtasks[0] = edited.Subtasks[0] with { Title = "修改后的一级" };
+        service.SaveRoutine(edited);
+        var original = service.Pending.Single().Subtasks.Single();
+        Check(original.Title == "一级" && original.Id == firstChild && original.Subtasks[0].Subtasks[0].IsCompleted);
+        edited = store.Snapshot().Routines.Single(r => r.Id == routineId);
+        edited.Subtasks[0].Children[0].Children[0].Children.Add(new("超过层数", []));
+        long revision = store.State.Revision;
+        Throws<ArgumentException>(() => service.SaveRoutine(edited));
+        Check(store.State.Revision == revision);
+    }
+
+    using var reopened = new DataStore(dir.Path);
+    now = now.AddMonths(1);
+    var next = new TaskService(reopened, () => now);
+    next.EnsureToday();
+    next.EnsureToday();
+    var nextOccurrence = next.Pending.Single();
+    var child = nextOccurrence.Subtasks.Single();
+    var nextLeaf = child.Subtasks.Single().Subtasks.Single();
+    Check(child.Title == "修改后的一级" && child.Id != firstChild && nextLeaf.Id != firstLeaf && !nextLeaf.IsCompleted);
+    next.DeleteTask(nextOccurrence.Id);
+    next.EnsureToday();
+    Check(!next.Pending.Any());
+}
+
 static void Trash()
 {
     using var dir = new TestDirectory(); using var store = new DataStore(dir.Path); var service = new TaskService(store);

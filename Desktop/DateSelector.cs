@@ -16,11 +16,19 @@ internal sealed class DateSelector : Grid
     private DateOnly _selected = DateOnly.FromDateTime(DateTime.Today);
     private DateOnly _shown;
     private bool _updating;
+    public event Action? DateChanged;
 
     public DateOnly SelectedDate
     {
         get => _selected;
-        set { _selected = value; _shown = new DateOnly(value.Year, value.Month, 1); _label.Text = value.ToString("yyyy年M月d日", CultureInfo.InvariantCulture); }
+        set
+        {
+            bool changed = _selected != value;
+            _selected = value;
+            _shown = new DateOnly(value.Year, value.Month, 1);
+            _label.Text = value.ToString("yyyy年M月d日", CultureInfo.InvariantCulture);
+            if (changed) DateChanged?.Invoke();
+        }
     }
 
     public DateSelector()

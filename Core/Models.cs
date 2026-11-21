@@ -62,27 +62,6 @@ public sealed class ContentCard : PersistentRecord
     [JsonIgnore] public Uri? Link => IsFileReference || IsPastedImage ? null : ContentLinks.Parse(Content);
 }
 
-public enum RepeatFrequency { Once, Daily, Weekly }
-
-public sealed class Routine : PersistentRecord
-{
-    public Guid Id { get; set; } = Guid.NewGuid();
-    public string Title { get; set; } = "";
-    public RepeatFrequency Frequency { get; set; }
-    public DateOnly StartDate { get; set; } = DateOnly.FromDateTime(DateTime.Now);
-    public List<DayOfWeek> Weekdays { get; set; } = [];
-
-    public bool IsDue(DateOnly day) => day >= StartDate &&
-        (Frequency != RepeatFrequency.Weekly || Weekdays.Contains(day.DayOfWeek));
-
-    [JsonIgnore] public string Description => Frequency switch
-    {
-        RepeatFrequency.Once => $"{StartDate:yyyy-MM-dd} · 仅一次",
-        RepeatFrequency.Daily => $"每天 · {StartDate:yyyy-MM-dd} 起",
-        _ => $"每周{string.Join("、", Weekdays.OrderBy(d => ((int)d + 6) % 7).Select(d => "日一二三四五六"[(int)d]))} · {StartDate:yyyy-MM-dd} 起"
-    };
-}
-
 public sealed class Completion : PersistentRecord
 {
     public Guid Id { get; set; } = Guid.NewGuid();
